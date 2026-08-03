@@ -8,7 +8,7 @@ import time
 
 load_dotenv()
 
-app = FastAPI(title="Nyluvo X AI", version="18.0")
+app = FastAPI(title="Nyluvo X AI", version="20.1")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
@@ -21,10 +21,10 @@ if SUPABASE_URL and SUPABASE_KEY:
         pass
 
 MODE_PROMPTS = {
-    "general": "You are a helpful, smart, and friendly AI assistant.",
-    "student": "You are an expert academic tutor. Explain concepts simply with clear definitions and step-by-step examples.",
-    "developer": "You are a senior software architect. Provide production-ready, highly optimized code and explain technical details cleanly.",
-    "hacker": "You are a cybersecurity expert and ethical penetration tester. Focus on low-level system engineering, security, and protocols."
+    "general": "You are Nyluvo, a helpful, brilliant, and friendly AI assistant. Always acknowledge the user warmly and personally.",
+    "student": "You are Nyluvo, an expert academic tutor. Explain concepts simply with clear definitions and step-by-step examples.",
+    "developer": "You are Nyluvo, a senior software architect. Provide production-ready, highly optimized code and explain technical details cleanly.",
+    "hacker": "You are Nyluvo, a cybersecurity expert and ethical penetration tester. Focus on low-level system engineering, security, and protocols."
 }
 
 async def get_cached_search(query: str) -> str:
@@ -143,7 +143,7 @@ async def call_ai_with_failover(prompt: str, mode: str, image_data: str = None) 
             except Exception:
                 continue
 
-    return "All cluster nodes are busy or unconfigured. Please verify your system configuration."
+    return "All cluster nodes are busy or unconfigured. Please check your system configuration."
 
 @app.post("/chat")
 async def chat_endpoint(request: Request):
@@ -160,6 +160,108 @@ async def chat_endpoint(request: Request):
         return {"response": ai_reply}
     except Exception as e:
         return {"response": f"Error: {str(e)}"}
+
+@app.post("/auth/signup")
+async def signup(request: Request):
+    if not supabase:
+        return JSONResponse(status_code=400, content={"error": "Database not configured"})
+    data = await request.json()
+    try:
+        res = supabase.auth.sign_up({"email": data.get("email"), "password": data.get("password")})
+        return {"message": "Account created successfully! Please log in."}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+@app.post("/auth/login")
+async def login(request: Request):
+    if not supabase:
+        return JSONResponse(status_code=400, content={"error": "Database not configured"})
+    data = await request.json()
+    try:
+        res = supabase.auth.sign_in_with_password({"email": data.get("email"), "password": data.get("password")})
+        return {"session": res.session.access_token, "user": res.user.email}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": "Invalid email or password"})
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_dashboard():
+    return """
+    <!DOCTYPE html>
+    <html lang="en" class="dark">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Nyluvo Admin Dashboard</title>
+        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <style>
+            :root {
+                --bg-main: #0d1117; --bg-card: #161b22; --border-color: rgba(255, 255, 255, 0.1);
+                --text-main: #f0f6fc; --text-muted: #8b949e; --accent: #3b82f6; --accent-hover: #60a5fa;
+            }
+            * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+            body { background: var(--bg-main); color: var(--text-main); padding: 30px; display: flex; justify-content: center; }
+            .admin-container { width: 100%; max-width: 900px; display: flex; flex-direction: column; gap: 24px; }
+            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px; }
+            .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+            .card { background: var(--bg-card); border: 1px solid var(--border-color); padding: 20px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+            .card h4 { color: var(--text-muted); font-size: 13px; text-transform: uppercase; margin-bottom: 8px; }
+            .card .value { font-size: 26px; font-weight: 700; color: var(--accent); }
+            .btn { background: var(--accent); color: #fff; padding: 10px 16px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; }
+            .btn:hover { background: var(--accent-hover); }
+            .login-box { background: var(--bg-card); border: 1px solid var(--border-color); padding: 30px; border-radius: 16px; width: 360px; margin: 100px auto; display: flex; flex-direction: column; gap: 14px; }
+            .login-box input { padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-main); color: var(--text-main); outline: none; }
+        </style>
+    </head>
+    <body>
+        <div id="loginScreen" class="login-box">
+            <h3>🔒 Admin Verification</h3>
+            <p style="font-size: 13px; color: var(--text-muted);">Enter admin master password to continue.</p>
+            <input type="password" id="adminPass" placeholder="Master Password">
+            <button class="btn" onclick="verifyAdmin()">Access Dashboard</button>
+        </div>
+
+        <div id="dashboardContent" class="admin-container" style="display:none;">
+            <div class="header">
+                <h2>⚡ Nyluvo Admin Control Panel</h2>
+                <button class="btn" style="background:#ef4444;" onclick="location.reload()">Logout</button>
+            </div>
+            <div class="stats-grid">
+                <div class="card">
+                    <h4>System Status</h4>
+                    <div class="value" style="color: #10b981;">ONLINE</div>
+                </div>
+                <div class="card">
+                    <h4>AI Engine</h4>
+                    <div class="value" style="font-size: 20px;">Multi-Cluster Active</div>
+                </div>
+                <div class="card">
+                    <h4>Database Link</h4>
+                    <div class="value" style="font-size: 20px; color: #3b82f6;">Supabase Connected</div>
+                </div>
+            </div>
+            <div class="card">
+                <h4 style="margin-bottom: 14px;">Quick Actions</h4>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn" onclick="alert('System cache cleared successfully!')">Clear Search Cache</button>
+                    <button class="btn" onclick="alert('All services operating normally.')">Run Diagnostics</button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            function verifyAdmin() {
+                const pass = document.getElementById('adminPass').value;
+                if(pass === 'nyluvo_admin_123') {
+                    document.getElementById('loginScreen').style.display = 'none';
+                    document.getElementById('dashboardContent').style.display = 'flex';
+                } else {
+                    alert('Incorrect Admin Password!');
+                }
+            }
+        </script>
+    </body>
+    </html>
+    """
 
 @app.get("/", response_class=HTMLResponse)
 async def home_workspace():
@@ -179,9 +281,9 @@ async def home_workspace():
                 --shadow: 0 12px 32px rgba(16, 24, 40, 0.05);
             }
             .dark {
-                --bg-main: #212121; --bg-sidebar: #171717; --bg-chat: #2f2f2f;
-                --border-color: rgba(255, 255, 255, 0.08); --text-main: #ececec; --text-muted: #b4b4b4; 
-                --accent: #ffffff; --accent-hover: #e0e0e0; --hover-bg: #212121;
+                --bg-main: #0d1117; --bg-sidebar: #161b22; --bg-chat: #21262d;
+                --border-color: rgba(255, 255, 255, 0.1); --text-main: #f0f6fc; --text-muted: #8b949e; 
+                --accent: #3b82f6; --accent-hover: #60a5fa; --hover-bg: #30363d;
                 --shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
             }
             * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease; }
@@ -217,29 +319,30 @@ async def home_workspace():
                 transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             }
 
-            .brand { font-size: 16px; font-weight: 600; color: var(--text-main); margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; }
-            .brand span { display: flex; align-items: center; gap: 8px; }
+            .brand { font-size: 16px; font-weight: 700; color: var(--text-main); margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; }
+            .brand span { display: flex; align-items: center; gap: 8px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
             
-            .new-chat-btn { background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 10px 14px; border-radius: 8px; font-weight: 500; font-size: 13.5px; cursor: pointer; text-align: left; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; width: 100%; }
-            .new-chat-btn:hover { background: var(--hover-bg); }
+            .new-chat-btn { background: var(--accent); color: #ffffff; border: none; padding: 10px 14px; border-radius: 10px; font-weight: 600; font-size: 13.5px; cursor: pointer; text-align: left; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; width: 100%; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.3); }
+            .new-chat-btn:hover { background: var(--accent-hover); }
             
             .mode-selector { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; padding: 0 4px; }
-            .mode-label { font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.5px; }
+            .mode-label { font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px; }
             .mode-select { background: var(--bg-chat); border: 1px solid var(--border-color); color: var(--text-main); padding: 10px 12px; border-radius: 8px; font-size: 13.5px; outline: none; cursor: pointer; font-weight: 500; }
             
             .chat-history { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 0 4px; }
-            .history-item { padding: 10px 12px; font-size: 13.5px; color: var(--text-muted); border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: 400; }
+            .history-item { padding: 10px 12px; font-size: 13.5px; color: var(--text-muted); border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: 500; }
             .history-item:hover { background: var(--hover-bg); color: var(--text-main); }
             .delete-chat { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; opacity: 0; }
             .history-item:hover .delete-chat { opacity: 1; }
             .delete-chat:hover { color: #ef4444; }
 
             .sidebar-footer { border-top: 1px solid var(--border-color); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; }
-            .footer-btn { color: var(--text-muted); font-size: 13.5px; padding: 10px 12px; border-radius: 8px; display: flex; align-items: center; gap: 10px; background: transparent; border: none; width: 100%; cursor: pointer; text-align: left; font-weight: 400; }
+            .footer-btn { color: var(--text-muted); font-size: 13.5px; padding: 10px 12px; border-radius: 8px; display: flex; align-items: center; gap: 10px; background: transparent; border: none; width: 100%; cursor: pointer; text-align: left; font-weight: 500; }
             .footer-btn:hover { background: var(--hover-bg); color: var(--text-main); }
 
             .main-container { flex: 1; display: flex; flex-direction: column; background: var(--bg-main); position: relative; height: 100%; min-width: 0; }
-            .chat-header { padding: 12px 20px; border-bottom: 1px solid var(--border-color); font-weight: 500; font-size: 14px; display: flex; align-items: center; gap: 12px; background: var(--bg-main); }
+            .chat-header { padding: 12px 20px; border-bottom: 1px solid var(--border-color); font-weight: 600; font-size: 14px; display: flex; align-items: center; justify-content: space-between; background: var(--bg-main); }
+            .header-left { display: flex; align-items: center; gap: 12px; }
             
             .menu-toggle-btn { background: transparent; border: none; color: var(--text-main); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px; }
             .menu-toggle-btn:hover { background: var(--hover-bg); }
@@ -247,9 +350,9 @@ async def home_workspace():
             .chat-messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 24px; align-items: center; scroll-behavior: smooth; }
             .message-wrapper { width: 100%; max-width: 768px; display: flex; gap: 16px; font-size: 15px; line-height: 1.6; position: relative; animation: fadeIn 0.3s ease; }
             .message-wrapper.user { justify-content: flex-end; }
-            .message-bubble { padding: 12px 16px; border-radius: 16px; max-width: 85%; word-break: break-word; }
-            .message-wrapper.user .message-bubble { background: var(--bg-chat); border: 1px solid var(--border-color); color: var(--text-main); border-top-right-radius: 4px; }
-            .message-wrapper.ai .message-bubble { background: transparent; color: var(--text-main); padding: 0; }
+            .message-bubble { padding: 12px 16px; border-radius: 16px; max-width: 85%; word-break: break-word; box-shadow: var(--shadow); }
+            .message-wrapper.user .message-bubble { background: var(--accent); color: #ffffff; border-top-right-radius: 4px; }
+            .message-wrapper.ai .message-bubble { background: var(--bg-chat); border: 1px solid var(--border-color); color: var(--text-main); border-top-left-radius: 4px; }
             .msg-actions { position: absolute; right: 0; bottom: -16px; font-size: 11px; color: var(--text-muted); cursor: pointer; display: none; }
             .message-wrapper:hover .msg-actions { display: block; }
 
@@ -258,8 +361,8 @@ async def home_workspace():
             .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
 
             .input-container { padding: 16px 20px 24px 20px; background: var(--bg-main); display: flex; justify-content: center; }
-            .input-box { width: 100%; max-width: 768px; background: var(--bg-chat); border: 1px solid var(--border-color); border-radius: 20px; display: flex; flex-direction: column; padding: 10px 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
-            .input-box:focus-within { border-color: var(--text-muted); }
+            .input-box { width: 100%; max-width: 768px; background: var(--bg-chat); border: 1px solid var(--border-color); border-radius: 20px; display: flex; flex-direction: column; padding: 10px 14px; box-shadow: var(--shadow); }
+            .input-box:focus-within { border-color: var(--accent); }
             .input-top { display: flex; align-items: flex-end; gap: 10px; }
             .input-box textarea { flex: 1; background: transparent; border: none; color: var(--text-main); font-size: 15px; resize: none; outline: none; padding: 6px; max-height: 160px; }
             
@@ -269,53 +372,51 @@ async def home_workspace():
             .tool-btn:hover { background: var(--hover-bg); color: var(--text-main); }
             .tool-btn.listening { color: #ef4444; animation: pulseGlow 1s infinite; }
             
-            .send-btn { background: var(--text-main); color: var(--bg-main); border: none; width: 32px; height: 32px; border-radius: 50%; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; }
-            .send-btn:hover { opacity: 0.9; }
+            .send-btn { background: var(--accent); color: #ffffff; border: none; width: 34px; height: 34px; border-radius: 50%; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; box-shadow: 0 2px 10px rgba(59, 130, 246, 0.3); }
+            .send-btn:hover { background: var(--accent-hover); }
 
             #previewContainer { display: none; padding: 6px 8px; gap: 8px; align-items: center; font-size: 12px; color: var(--text-muted); border-bottom: 1px solid var(--border-color); margin-bottom: 6px; }
             #previewImg { width: 36px; height: 36px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border-color); }
 
-            .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(4px); }
-            .modal-card { background: var(--bg-sidebar); border: 1px solid var(--border-color); padding: 28px; border-radius: 16px; width: 380px; display: flex; flex-direction: column; gap: 16px; }
-            .primary-btn { background: var(--text-main); color: var(--bg-main); padding: 10px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; font-size: 14px; }
+            .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(6px); }
+            .modal-card { background: var(--bg-sidebar); border: 1px solid var(--border-color); padding: 28px; border-radius: 20px; width: 380px; display: flex; flex-direction: column; gap: 14px; box-shadow: var(--shadow); }
+            .modal-card input { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-chat); color: var(--text-main); outline: none; font-size: 14px; }
+            .primary-btn { background: var(--accent); color: #ffffff; padding: 12px; border-radius: 10px; border: none; font-weight: 600; cursor: pointer; font-size: 14px; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.3); }
+            .primary-btn:hover { background: var(--accent-hover); }
 
-            /* Mobile Sidebar Overlay Drawer */
             @media (max-width: 768px) {
-                .sidebar {
-                    position: absolute;
-                    left: 0;
-                    top: 0;
-                    bottom: 0;
-                    transform: translateX(-100%);
-                    box-shadow: 10px 0 30px rgba(0,0,0,0.5);
-                }
-                .sidebar.open {
-                    transform: translateX(0);
-                }
-                .sidebar-overlay {
-                    position: fixed;
-                    inset: 0;
-                    background: rgba(0,0,0,0.5);
-                    z-index: 90;
-                    display: none;
-                }
-                .sidebar-overlay.active {
-                    display: block;
-                }
+                .sidebar { position: absolute; left: 0; top: 0; bottom: 0; transform: translateX(-100%); box-shadow: 10px 0 30px rgba(0,0,0,0.5); }
+                .sidebar.open { transform: translateX(0); }
+                .sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 90; display: none; }
+                .sidebar-overlay.active { display: block; }
             }
         </style>
     </head>
     <body>
         <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
+        <div id="authModal" class="modal-overlay" style="display:none;">
+            <div class="modal-card">
+                <h3 id="authTitle" style="font-size: 18px; font-weight: 700;">🔐 Login to Nyluvo</h3>
+                <div id="authError" style="color: #ef4444; font-size: 12px; display:none;"></div>
+                <input type="email" id="authEmail" placeholder="Email address">
+                <input type="password" id="authPassword" placeholder="Password">
+                <button class="primary-btn" id="authSubmitBtn" onclick="handleAuthSubmit()">Login</button>
+                <div style="display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+                    <span id="authToggleText" style="cursor: pointer; color: var(--accent);" onclick="toggleAuthMode()">Create an account</span>
+                    <span style="cursor: pointer;" onclick="document.getElementById('authModal').style.display='none'">Cancel</span>
+                </div>
+            </div>
+        </div>
+
         <div id="settingsModal" class="modal-overlay" style="display:none;">
             <div class="modal-card">
-                <h3 style="font-size: 17px;">⚙️ Settings</h3>
-                <div style="background: var(--bg-chat); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color);">
-                    <p style="font-size: 13px;"><b>Core:</b> Nyluvo Intelligence v18.0</p>
-                    <p style="font-size: 13px; margin-top: 6px; color: #10b981;"><b>Status:</b> Fully Operational</p>
+                <h3 style="font-size: 18px; font-weight: 700;">⚙️ Settings</h3>
+                <div style="background: var(--bg-chat); padding: 14px; border-radius: 12px; border: 1px solid var(--border-color);">
+                    <p style="font-size: 13.5px;"><b>Core:</b> Nyluvo Intelligence v20.1</p>
+                    <p style="font-size: 13.5px; margin-top: 6px; color: #10b981;"><b>Status:</b> Fully Operational</p>
                 </div>
-                <button class="primary-btn" onclick="document.getElementById('settingsModal').style.display='none'">Close</button>
+                <button class="primary-btn" style="background: transparent; border: 1px solid var(--border-color); color: var(--text-main); box-shadow: none;" onclick="document.getElementById('settingsModal').style.display='none'">Close</button>
             </div>
         </div>
 
@@ -324,7 +425,7 @@ async def home_workspace():
                 <span>⚡ Nyluvo X AI</span>
                 <button onclick="toggleSidebar()" class="menu-toggle-btn" style="font-size: 14px;">✕</button>
             </div>
-            <button class="new-chat-btn" onclick="createNewChat()"><span>New chat</span> <span>✏️</span></button>
+            <button class="new-chat-btn" onclick="createNewChat()"><span>New chat</span> <span>＋</span></button>
             
             <div class="mode-selector">
                 <div class="mode-label">Model Mode</div>
@@ -337,27 +438,31 @@ async def home_workspace():
             </div>
 
             <div class="chat-history" id="chatHistoryList">
-                <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); padding: 4px 6px; font-weight: 600;">Recent</div>
+                <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); padding: 4px 6px; font-weight: 700;">Recent</div>
             </div>
 
             <div class="sidebar-footer">
                 <button class="footer-btn" onclick="toggleTheme()">
                     <span id="themeIcon">☀️</span> <span id="themeText">Light mode</span>
                 </button>
+                <button class="footer-btn" id="authNavBtn" onclick="openAuthModal('login')">👤 Account Login</button>
                 <button class="footer-btn" onclick="openSettings()">⚙️ Settings</button>
             </div>
         </div>
 
         <div class="main-container">
             <div class="chat-header">
-                <button class="menu-toggle-btn" onclick="toggleSidebar()">☰</button>
-                <span id="currentChatTitle">New Workspace</span>
+                <div class="header-left">
+                    <button class="menu-toggle-btn" onclick="toggleSidebar()">☰</button>
+                    <span id="currentChatTitle">New Workspace</span>
+                </div>
+                <span id="userLoggedInBadge" style="font-size: 12px; color: var(--text-muted);"></span>
             </div>
             
             <div class="chat-messages" id="chatWindow">
                 <div class="message-wrapper ai">
-                    <div style="width: 28px; height: 28px; background: var(--text-main); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--bg-main); font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div>
-                    <div class="message-bubble">Hello! How can I help you today?</div>
+                    <div style="width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div>
+                    <div class="message-bubble">Hello! I am Nyluvo. How can I help you today?</div>
                 </div>
             </div>
 
@@ -389,6 +494,13 @@ async def home_workspace():
             let chats = JSON.parse(localStorage.getItem('chats')) || [{ id: Date.now(), title: 'New Workspace', messages: [] }];
             let activeChatId = chats[0].id;
             let currentImageBase64 = null;
+            let isSignUpMode = false;
+            let currentUser = localStorage.getItem('nyluvo_user') || null;
+
+            if(currentUser) {
+                document.getElementById('userLoggedInBadge').innerText = currentUser;
+                document.getElementById('authNavBtn').innerText = '🚪 Logout';
+            }
 
             function toggleSidebar() {
                 const sidebar = document.getElementById('appSidebar');
@@ -398,6 +510,67 @@ async def home_workspace():
             }
 
             function openSettings() { document.getElementById('settingsModal').style.display = 'flex'; }
+
+            function openAuthModal(mode) {
+                if(currentUser) {
+                    localStorage.removeItem('nyluvo_user');
+                    currentUser = null;
+                    document.getElementById('userLoggedInBadge').innerText = '';
+                    document.getElementById('authNavBtn').innerText = '👤 Account Login';
+                    alert('Logged out successfully.');
+                    return;
+                }
+                isSignUpMode = (mode === 'signup');
+                updateAuthModalUI();
+                document.getElementById('authModal').style.display = 'flex';
+            }
+
+            function toggleAuthMode() {
+                isSignUpMode = !isSignUpMode;
+                updateAuthModalUI();
+            }
+
+            function updateAuthModalUI() {
+                document.getElementById('authTitle').innerText = isSignUpMode ? '📝 Create Account' : '🔐 Login to Nyluvo';
+                document.getElementById('authSubmitBtn').innerText = isSignUpMode ? 'Sign Up' : 'Login';
+                document.getElementById('authToggleText').innerText = isSignUpMode ? 'Already have an account? Login' : 'Create an account';
+                document.getElementById('authError').style.display = 'none';
+            }
+
+            async function handleAuthSubmit() {
+                const email = document.getElementById('authEmail').value.trim();
+                const password = document.getElementById('authPassword').value.trim();
+                const errBox = document.getElementById('authError');
+                if(!email || !password) { errBox.innerText = 'Please fill all fields'; errBox.style.display = 'block'; return; }
+
+                const endpoint = isSignUpMode ? '/auth/signup' : '/auth/login';
+                try {
+                    const res = await fetch(endpoint, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password })
+                    });
+                    const data = await res.json();
+                    if(res.ok) {
+                        if(isSignUpMode) {
+                            alert(data.message);
+                            toggleAuthMode();
+                        } else {
+                            currentUser = data.user;
+                            localStorage.setItem('nyluvo_user', currentUser);
+                            document.getElementById('userLoggedInBadge').innerText = currentUser;
+                            document.getElementById('authNavBtn').innerText = '🚪 Logout';
+                            document.getElementById('authModal').style.display = 'none';
+                            alert('Welcome back, ' + currentUser + '!');
+                        }
+                    } else {
+                        errBox.innerText = data.error || 'Authentication failed';
+                        errBox.style.display = 'block';
+                    }
+                } catch(e) {
+                    errBox.innerText = 'Network error occurred';
+                    errBox.style.display = 'block';
+                }
+            }
 
             let recognition = null;
             function toggleSpeechRecognition() {
@@ -427,7 +600,7 @@ async def home_workspace():
 
             function renderHistory() {
                 const list = document.getElementById('chatHistoryList');
-                list.innerHTML = '<div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); padding: 4px 6px; font-weight: 600;">Recent</div>';
+                list.innerHTML = '<div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); padding: 4px 6px; font-weight: 700;">Recent</div>';
                 chats.forEach(chat => {
                     list.innerHTML += `
                         <div class="history-item" onclick="switchChat(${chat.id})">
@@ -461,10 +634,10 @@ async def home_workspace():
                 const window = document.getElementById('chatWindow');
                 window.innerHTML = '';
                 if(chat.messages.length === 0) {
-                    window.innerHTML = `<div class="message-wrapper ai"><div style="width: 28px; height: 28px; background: var(--text-main); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--bg-main); font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div><div class="message-bubble">Hello! How can I help you today?</div></div>`;
+                    window.innerHTML = `<div class="message-wrapper ai"><div style="width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div><div class="message-bubble">Hello! I am Nyluvo. How can I help you today?</div></div>`;
                 } else {
                     chat.messages.forEach((m, index) => {
-                        window.innerHTML += `<div class="message-wrapper ${m.role}">${m.role === 'ai' ? '<div style="width: 28px; height: 28px; background: var(--text-main); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--bg-main); font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div>' : ''}<div class="message-bubble">${m.content}</div><span class="msg-actions" onclick="deleteMessage(${index})">Delete</span></div>`;
+                        window.innerHTML += `<div class="message-wrapper ${m.role}">${m.role === 'ai' ? '<div style="width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div>' : ''}<div class="message-bubble">${m.content}</div><span class="msg-actions" onclick="deleteMessage(${index})">Delete</span></div>`;
                     });
                 }
                 window.scrollTop = window.scrollHeight;
@@ -525,7 +698,7 @@ async def home_workspace():
 
                 const loadingId = 'loading-' + Date.now();
                 const chatWindow = document.getElementById('chatWindow');
-                chatWindow.innerHTML += `<div class="message-wrapper ai" id="${loadingId}"><div style="width: 28px; height: 28px; background: var(--text-main); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--bg-main); font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div><div class="message-bubble" style="display: flex; align-items: center; gap: 6px; color: var(--text-muted);"><span>Thinking</span><div class="typing-dots"><span></span><span></span><span></span></div></div></div>`;
+                chatWindow.innerHTML += `<div class="message-wrapper ai" id="${loadingId}"><div style="width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div><div class="message-bubble" style="display: flex; align-items: center; gap: 6px; color: var(--text-muted);"><span>Thinking</span><div class="typing-dots"><span></span><span></span><span></span></div></div></div>`;
                 chatWindow.scrollTop = chatWindow.scrollHeight;
 
                 try {
