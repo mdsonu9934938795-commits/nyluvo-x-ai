@@ -8,7 +8,7 @@ import time
 
 load_dotenv()
 
-app = FastAPI(title="Nyluvo X AI", version="16.0")
+app = FastAPI(title="Nyluvo X AI", version="17.0")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
@@ -34,7 +34,7 @@ async def get_cached_search(query: str) -> str:
         res = supabase.table("search_cache").select("result, timestamp").eq("query", query.lower().strip()).execute()
         if res.data:
             row = res.data[0]
-            if time.time() - row["timestamp"] < 86400: # 24 Hours Cache
+            if time.time() - row["timestamp"] < 86400:
                 return row["result"]
     except Exception:
         pass
@@ -113,11 +113,7 @@ async def call_ai_with_failover(prompt: str, mode: str, image_data: str = None) 
         ("Gemini-1", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent", os.getenv("GEMINI_API_KEY_1"), "gemini", "query"),
         ("Gemini-2", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent", os.getenv("GEMINI_API_KEY_2"), "gemini", "query"),
         ("Mistral-1", "https://api.mistral.ai/v1/chat/completions", os.getenv("MISTRAL_API_KEY_1"), "mistral-small-latest", "bearer"),
-        ("Mistral-2", "https://api.mistral.ai/v1/chat/completions", os.getenv("MISTRAL_API_KEY_2"), "mistral-small-latest", "bearer"),
-        ("Cohere-1", "https://api.cohere.com/v1/chat", os.getenv("COHERE_API_KEY_1"), "command-r-plus", "cohere-auth"),
-        ("Cohere-2", "https://api.cohere.com/v1/chat", os.getenv("COHERE_API_KEY_2"), "command-r-plus", "cohere-auth"),
-        ("Qwen-1", "https://openrouter.ai/api/v1/chat/completions", os.getenv("QWEN_API_KEY_1"), "qwen/qwen-2.5-72b-instruct", "bearer"),
-        ("Qwen-2", "https://openrouter.ai/api/v1/chat/completions", os.getenv("QWEN_API_KEY_2"), "qwen/qwen-2.5-72b-instruct", "bearer")
+        ("Mistral-2", "https://api.mistral.ai/v1/chat/completions", os.getenv("MISTRAL_API_KEY_2"), "mistral-small-latest", "bearer")
     ]
 
     async with httpx.AsyncClient(timeout=35.0) as client:
@@ -144,10 +140,6 @@ async def call_ai_with_failover(prompt: str, mode: str, image_data: str = None) 
                     response = await client.post(f"{url}?key={key}", json={"contents": [{"parts": [{"text": full_p}]}]})
                     if response.status_code == 200:
                         return response.json()["candidates"][0]["content"]["parts"][0]["text"]
-                elif auth_type == "cohere-auth":
-                    response = await client.post(url, headers={"Authorization": f"BEARER {key}", "Content-Type": "application/json"}, json={"model": model, "message": prompt, "preamble": system_prompt})
-                    if response.status_code == 200:
-                        return response.json()["text"]
             except Exception:
                 continue
 
@@ -211,7 +203,15 @@ async def home_workspace():
                 --shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
             }
             * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; transition: background 0.25s ease, color 0.25s ease, border-color 0.25s ease; }
-            body { background: var(--bg-main); color: var(--text-main); display: flex; height: 100vh; overflow: hidden; }
+            body { 
+                background: var(--bg-main); 
+                color: var(--text-main); 
+                display: flex; 
+                height: 100vh; 
+                height: 100dvh; 
+                overflow: hidden; 
+                flex-direction: row;
+            }
             
             @keyframes fadeIn {
                 from { opacity: 0; transform: translateY(8px); }
@@ -227,16 +227,15 @@ async def home_workspace():
             .brand { font-size: 19px; font-weight: 700; color: var(--text-main); margin-bottom: 24px; display: flex; align-items: center; gap: 10px; padding-left: 6px; }
             .brand span { background: linear-gradient(135deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
             
-            .new-chat-btn { background: var(--accent); color: #ffffff; border: none; padding: 13px 16px; border-radius: 14px; font-weight: 600; font-size: 14px; cursor: pointer; text-align: left; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; box-shadow: 0 6px 20px rgba(59, 130, 246, 0.3); transform: translateY(0); transition: all 0.2s; }
+            .new-chat-btn { background: var(--accent); color: #ffffff; border: none; padding: 13px 16px; border-radius: 14px; font-weight: 600; font-size: 14px; cursor: pointer; text-align: left; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; box-shadow: 0 6px 20px rgba(59, 130, 246, 0.3); transition: all 0.2s; }
             .new-chat-btn:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4); }
             
             .mode-selector { display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px; }
             .mode-label { font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; padding-left: 6px; letter-spacing: 0.6px; }
             .mode-select { background: var(--bg-chat); border: 1px solid var(--border-color); color: var(--text-main); padding: 12px 14px; border-radius: 12px; font-size: 14px; outline: none; cursor: pointer; font-weight: 500; }
-            .mode-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
             
             .chat-history { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px; }
-            .history-item { padding: 11px 12px; font-size: 13.5px; color: var(--text-muted); border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: 500; animation: fadeIn 0.3s ease; }
+            .history-item { padding: 11px 12px; font-size: 13.5px; color: var(--text-muted); border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: 500; }
             .history-item:hover { background: var(--hover-bg); color: var(--text-main); }
             .delete-chat { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 13px; opacity: 0; transition: opacity 0.2s; }
             .history-item:hover .delete-chat { opacity: 1; }
@@ -247,10 +246,10 @@ async def home_workspace():
             .footer-btn:hover { background: var(--hover-bg); color: var(--text-main); }
 
             .main-container { flex: 1; display: flex; flex-direction: column; background: var(--bg-main); position: relative; }
-            .chat-header { padding: 18px 32px; border-bottom: 1px solid var(--border-color); font-weight: 600; font-size: 15px; display: flex; justify-content: space-between; align-items: center; background: var(--bg-main); backdrop-filter: blur(12px); }
+            .chat-header { padding: 18px 32px; border-bottom: 1px solid var(--border-color); font-weight: 600; font-size: 15px; display: flex; justify-content: space-between; align-items: center; background: var(--bg-main); }
             
             .chat-messages { flex: 1; overflow-y: auto; padding: 30px; display: flex; flex-direction: column; gap: 26px; align-items: center; scroll-behavior: smooth; }
-            .message-wrapper { width: 100%; max-width: 800px; display: flex; gap: 16px; font-size: 15px; line-height: 1.75; position: relative; animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+            .message-wrapper { width: 100%; max-width: 800px; display: flex; gap: 16px; font-size: 15px; line-height: 1.75; position: relative; animation: fadeIn 0.35s ease; }
             .message-wrapper.user { justify-content: flex-end; }
             .message-bubble { padding: 16px 22px; border-radius: 20px; max-width: 82%; word-break: break-word; box-shadow: var(--shadow); }
             .message-wrapper.user .message-bubble { background: var(--accent); color: #ffffff; border-top-right-radius: 4px; }
@@ -262,54 +261,45 @@ async def home_workspace():
             .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
             .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
 
-            .input-container { padding: 20px 20px 30px 20px; background: var(--bg-main); display: flex; justify-content: center; }
-            .input-box { width: 100%; max-width: 800px; background: var(--bg-chat); border: 1px solid var(--border-color); border-radius: 22px; display: flex; flex-direction: column; padding: 12px 18px; box-shadow: var(--shadow); transition: all 0.25s; }
+            .input-container { padding: 20px; background: var(--bg-main); display: flex; justify-content: center; }
+            .input-box { width: 100%; max-width: 800px; background: var(--bg-chat); border: 1px solid var(--border-color); border-radius: 22px; display: flex; flex-direction: column; padding: 12px 18px; box-shadow: var(--shadow); }
             .input-box:focus-within { border-color: var(--accent); box-shadow: 0 12px 40px rgba(59, 130, 246, 0.18); }
             .input-top { display: flex; align-items: flex-end; gap: 10px; }
             .input-box textarea { flex: 1; background: transparent; border: none; color: var(--text-main); font-size: 15px; resize: none; outline: none; padding: 6px; max-height: 180px; }
             
             .input-actions { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 10px; margin-top: 8px; }
             .tool-group { display: flex; gap: 8px; align-items: center; }
-            .tool-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 18px; display: flex; align-items: center; padding: 6px; border-radius: 8px; transition: all 0.2s; }
+            .tool-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 18px; display: flex; align-items: center; padding: 6px; border-radius: 8px; }
             .tool-btn:hover { background: var(--hover-bg); color: var(--text-main); }
             .tool-btn.listening { color: #ef4444; animation: pulseGlow 1s infinite; }
             
-            .send-btn { background: var(--accent); color: #ffffff; border: none; width: 38px; height: 38px; border-radius: 12px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+            .send-btn { background: var(--accent); color: #ffffff; border: none; width: 38px; height: 38px; border-radius: 12px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; }
             .send-btn:hover { background: var(--accent-hover); transform: scale(1.06); }
 
-            #previewContainer { display: none; padding: 6px 12px; gap: 8px; align-items: center; font-size: 12px; color: var(--text-muted); animation: fadeIn 0.2s ease; }
+            #previewContainer { display: none; padding: 6px 12px; gap: 8px; align-items: center; font-size: 12px; color: var(--text-muted); }
             #previewImg { width: 42px; height: 42px; border-radius: 10px; object-fit: cover; border: 1px solid var(--border-color); }
 
-            .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(12px); animation: fadeIn 0.2s ease; }
+            .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(12px); }
             .modal-card { background: var(--bg-sidebar); border: 1px solid var(--border-color); padding: 36px; border-radius: 26px; width: 430px; display: flex; flex-direction: column; gap: 18px; box-shadow: var(--shadow); }
             .modal-card input { padding: 13px 16px; border-radius: 12px; border: 1px solid var(--border-color); background: var(--bg-chat); color: var(--text-main); outline: none; font-size: 14px; }
-            .modal-card input:focus { border-color: var(--accent); }
-            .primary-btn { background: var(--accent); color: #ffffff; padding: 13px; border-radius: 12px; border: none; font-weight: 600; cursor: pointer; font-size: 14px; transition: background 0.2s; }
+            .primary-btn { background: var(--accent); color: #ffffff; padding: 13px; border-radius: 12px; border: none; font-weight: 600; cursor: pointer; font-size: 14px; }
             .primary-btn:hover { background: var(--accent-hover); }
+
+            @media (max-width: 768px) {
+                body { flex-direction: column; }
+                .sidebar { width: 100%; height: auto; max-height: 180px; }
+                .main-container { height: calc(100dvh - 180px); }
+            }
         </style>
     </head>
     <body>
-        <div id="authModal" class="modal-overlay">
-            <div class="modal-card">
-                <h3 style="text-align: center; font-size: 22px;">⚡ Nyluvo X AI</h3>
-                <p style="text-align: center; font-size: 13.5px; color: var(--text-muted);">Secure enterprise authentication</p>
-                <input type="email" id="authEmail" placeholder="name@company.com">
-                <input type="password" id="authPassword" placeholder="••••••••">
-                <button class="primary-btn" onclick="handleAuth('login')">Sign In</button>
-                <button class="primary-btn" style="background: transparent; border: 1px solid var(--border-color); color: var(--text-main);" onclick="handleAuth('signup')">Create Account</button>
-                <div id="authMsg" style="font-size: 12px; color: #ef4444; text-align: center;"></div>
-            </div>
-        </div>
-
         <div id="settingsModal" class="modal-overlay" style="display:none;">
             <div class="modal-card">
                 <h3 style="font-size: 18px;">⚙️ Workspace Settings</h3>
-                <p style="font-size: 13px; color: var(--text-muted);">Manage your active workspace configuration.</p>
                 <div style="background: var(--bg-chat); padding: 16px; border-radius: 14px; border: 1px solid var(--border-color);">
                     <p style="font-size: 13.5px;"><b>Status:</b> Powered by Nyluvo Intelligence</p>
                     <p style="font-size: 13.5px; margin-top: 8px; color: #10b981;"><b>System:</b> Fully Operational</p>
                 </div>
-                <button class="primary-btn" style="background:#ef4444;" onclick="logoutUser()">Log Out</button>
                 <button class="primary-btn" style="background:transparent; border:1px solid var(--border-color); color:var(--text-main);" onclick="document.getElementById('settingsModal').style.display='none'">Close</button>
             </div>
         </div>
@@ -336,9 +326,7 @@ async def home_workspace():
                 <button class="footer-btn" onclick="toggleTheme()">
                     <span id="themeIcon">☀️</span> <span id="themeText">Light Mode</span>
                 </button>
-                <button class="footer-btn" onclick="openSettings()">
-                    ⚙️ Settings
-                </button>
+                <button class="footer-btn" onclick="openSettings()">⚙️ Settings</button>
             </div>
         </div>
 
@@ -350,7 +338,7 @@ async def home_workspace():
             
             <div class="chat-messages" id="chatWindow">
                 <div class="message-wrapper ai">
-                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; flex-shrink: 0; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);">AI</div>
+                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; flex-shrink: 0;">AI</div>
                     <div class="message-bubble">Welcome to Nyluvo X AI. Powered by Nyluvo Intelligence, multi-modal image vision, and seamless web support.</div>
                 </div>
             </div>
@@ -384,51 +372,33 @@ async def home_workspace():
             let activeChatId = chats[0].id;
             let currentImageBase64 = null;
 
-            function openSettings() {
-                document.getElementById('settingsModal').style.display = 'flex';
-            }
-
-            function logoutUser() {
-                localStorage.removeItem('token');
-                location.reload();
-            }
+            function openSettings() { document.getElementById('settingsModal').style.display = 'flex'; }
 
             let recognition = null;
             function toggleSpeechRecognition() {
                 const micBtn = document.getElementById('micBtn');
-                if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-                    alert('Speech Recognition not supported.');
-                    return;
-                }
+                if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) { alert('Speech Recognition not supported.'); return; }
                 if (!recognition) {
                     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
                     recognition = new SpeechRec();
                     recognition.continuous = false;
                     recognition.interimResults = false;
                     recognition.lang = 'en-US';
-
                     recognition.onstart = () => { micBtn.classList.add('listening'); };
                     recognition.onresult = (event) => {
                         const transcript = event.results[0][0].transcript;
                         const textarea = document.getElementById('userInput');
                         textarea.value += (textarea.value ? ' ' : '') + transcript;
-                        textarea.style.height = 'auto';
-                        textarea.style.height = textarea.scrollHeight + 'px';
+                        textarea.style.height = 'auto'; textarea.style.height = textarea.scrollHeight + 'px';
                     };
                     recognition.onerror = () => { micBtn.classList.remove('listening'); };
                     recognition.onend = () => { micBtn.classList.remove('listening'); };
                 }
-                if (micBtn.classList.contains('listening')) {
-                    recognition.stop();
-                } else {
-                    recognition.start();
-                }
+                if (micBtn.classList.contains('listening')) recognition.stop();
+                else recognition.start();
             }
 
-            function saveChats() {
-                localStorage.setItem('chats', JSON.stringify(chats));
-                renderHistory();
-            }
+            function saveChats() { localStorage.setItem('chats', JSON.stringify(chats)); renderHistory(); }
 
             function renderHistory() {
                 const list = document.getElementById('chatHistoryList');
@@ -445,23 +415,14 @@ async def home_workspace():
 
             function createNewChat() {
                 const newChat = { id: Date.now(), title: 'New Workspace', messages: [] };
-                chats.unshift(newChat);
-                activeChatId = newChat.id;
-                saveChats();
-                loadActiveChat();
+                chats.unshift(newChat); activeChatId = newChat.id; saveChats(); loadActiveChat();
             }
-
-            function switchChat(id) {
-                activeChatId = id;
-                loadActiveChat();
-            }
-
+            function switchChat(id) { activeChatId = id; loadActiveChat(); }
             function deleteChat(id) {
                 chats = chats.filter(c => c.id !== id);
                 if (chats.length === 0) createNewChat();
                 else activeChatId = chats[0].id;
-                saveChats();
-                loadActiveChat();
+                saveChats(); loadActiveChat();
             }
 
             function loadActiveChat() {
@@ -471,21 +432,10 @@ async def home_workspace():
                 const window = document.getElementById('chatWindow');
                 window.innerHTML = '';
                 if(chat.messages.length === 0) {
-                    window.innerHTML = `
-                        <div class="message-wrapper ai">
-                            <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; flex-shrink: 0; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);">AI</div>
-                            <div class="message-bubble">Welcome to Nyluvo X AI. Powered by Nyluvo Intelligence, multi-modal image vision, and seamless web support.</div>
-                        </div>
-                    `;
+                    window.innerHTML = `<div class="message-wrapper ai"><div style="width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; flex-shrink: 0;">AI</div><div class="message-bubble">Welcome to Nyluvo X AI. Powered by Nyluvo Intelligence, multi-modal image vision, and seamless web support.</div></div>`;
                 } else {
                     chat.messages.forEach((m, index) => {
-                        window.innerHTML += `
-                            <div class="message-wrapper ${m.role}">
-                                ${m.role === 'ai' ? '<div style="width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; flex-shrink: 0; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);">AI</div>' : ''}
-                                <div class="message-bubble">${m.content}</div>
-                                <span class="msg-actions" onclick="deleteMessage(${index})">Delete</span>
-                            </div>
-                        `;
+                        window.innerHTML += `<div class="message-wrapper ${m.role}">${m.role === 'ai' ? '<div style="width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; flex-shrink: 0;">AI</div>' : ''}<div class="message-bubble">${m.content}</div><span class="msg-actions" onclick="deleteMessage(${index})">Delete</span></div>`;
                     });
                 }
                 window.scrollTop = window.scrollHeight;
@@ -493,11 +443,7 @@ async def home_workspace():
 
             function deleteMessage(index) {
                 const chat = chats.find(c => c.id === activeChatId);
-                if(chat) {
-                    chat.messages.splice(index, 1);
-                    saveChats();
-                    loadActiveChat();
-                }
+                if(chat) { chat.messages.splice(index, 1); saveChats(); loadActiveChat(); }
             }
 
             function handleImage(event) {
@@ -523,39 +469,13 @@ async def home_workspace():
                 const html = document.documentElement;
                 const icon = document.getElementById('themeIcon');
                 const text = document.getElementById('themeText');
-                if (html.classList.contains('dark')) {
-                    html.classList.remove('dark'); icon.innerText = '🌙'; text.innerText = 'Dark Mode';
-                } else {
-                    html.classList.add('dark'); icon.innerText = '☀️'; text.innerText = 'Light Mode';
-                }
-            }
-
-            async function handleAuth(type) {
-                const email = document.getElementById('authEmail').value;
-                const password = document.getElementById('authPassword').value;
-                const msgBox = document.getElementById('authMsg');
-                if(!email || !password) { msgBox.innerText = "Provide credentials"; return; }
-                const res = await fetch(`/auth/${type}`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password })
-                });
-                const data = await res.json();
-                if(res.ok) {
-                    if(type === 'login') {
-                        localStorage.setItem('token', data.session);
-                        document.getElementById('userStatus').innerText = data.user;
-                        document.getElementById('authModal').style.display = 'none';
-                    } else { msgBox.style.color = '#10b981'; msgBox.innerText = data.message; }
-                } else { msgBox.innerText = data.error; }
+                if (html.classList.contains('dark')) { html.classList.remove('dark'); icon.innerText = '🌙'; text.innerText = 'Dark Mode'; }
+                else { html.classList.add('dark'); icon.innerText = '☀️'; text.innerText = 'Light Mode'; }
             }
 
             const textarea = document.getElementById('userInput');
-            textarea.addEventListener('input', function() {
-                this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px';
-            });
-            textarea.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-            });
+            textarea.addEventListener('input', function() { this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px'; });
+            textarea.addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
 
             async function sendMessage() {
                 const text = textarea.value.trim();
@@ -563,34 +483,20 @@ async def home_workspace():
                 if (!text && !currentImageBase64) return;
 
                 let chat = chats.find(c => c.id === activeChatId);
-                if(chat.messages.length === 0) {
-                    chat.title = text.length > 25 ? text.substring(0, 25) + '...' : 'Interactive Query';
-                }
+                if(chat.messages.length === 0) chat.title = text.length > 25 ? text.substring(0, 25) + '...' : 'Interactive Query';
 
                 let displayContent = text;
-                if(currentImageBase64) {
-                    displayContent += `<br><img src="${currentImageBase64}" style="max-width:200px; border-radius:10px; margin-top:8px; border:1px solid var(--border-color);">`;
-                }
+                if(currentImageBase64) displayContent += `<br><img src="${currentImageBase64}" style="max-width:200px; border-radius:10px; margin-top:8px; border:1px solid var(--border-color);">`;
 
                 chat.messages.push({ role: 'user', content: displayContent });
-                saveChats();
-                loadActiveChat();
+                saveChats(); loadActiveChat();
 
                 const imgPayload = currentImageBase64;
-                textarea.value = ''; textarea.style.height = 'auto';
-                removeImage();
+                textarea.value = ''; textarea.style.height = 'auto'; removeImage();
 
                 const loadingId = 'loading-' + Date.now();
                 const chatWindow = document.getElementById('chatWindow');
-                chatWindow.innerHTML += `
-                    <div class="message-wrapper ai" id="${loadingId}">
-                        <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; flex-shrink: 0; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);">AI</div>
-                        <div class="message-bubble" style="display: flex; align-items: center; gap: 6px; color: var(--text-muted);">
-                            <span>Generating response</span>
-                            <div class="typing-dots"><span></span><span></span><span></span></div>
-                        </div>
-                    </div>
-                `;
+                chatWindow.innerHTML += `<div class="message-wrapper ai" id="${loadingId}"><div style="width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; flex-shrink: 0;">AI</div><div class="message-bubble" style="display: flex; align-items: center; gap: 6px; color: var(--text-muted);"><span>Generating response</span><div class="typing-dots"><span></span><span></span><span></span></div></div></div>`;
                 chatWindow.scrollTop = chatWindow.scrollHeight;
 
                 try {
@@ -599,18 +505,15 @@ async def home_workspace():
                         body: JSON.stringify({ message: text, mode: mode, image: imgPayload })
                     });
                     const data = await response.json();
-                    
                     chat.messages.push({ role: 'ai', content: data.response });
-                    saveChats();
-                    loadActiveChat();
+                    saveChats(); loadActiveChat();
                 } catch (err) {
                     document.getElementById(loadingId).remove();
                     chatWindow.innerHTML += `<div class="message-wrapper ai"><div style="width: 36px; height: 36px; background: #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; flex-shrink: 0;">!</div><div class="message-bubble" style="color: #ef4444;">Connection error. Please try again.</div></div>`;
                 }
             }
 
-            renderHistory();
-            loadActiveChat();
+            renderHistory(); loadActiveChat();
         </script>
     </body>
     </html>
@@ -619,18 +522,14 @@ async def home_workspace():
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_dashboard():
     def check_key(prefix):
-        k1 = "Configured" if os.getenv(f"{prefix}_1") else "Missing"
-        k2 = "Configured" if os.getenv(f"{prefix}_2") else "Missing"
-        return k1, k2
+        return ("Configured" if os.getenv(f"{prefix}_1") else "Missing", "Configured" if os.getenv(f"{prefix}_2") else "Missing")
 
     keys_status = {
-        "Web Intelligence Service": check_key("TAVILY_API_KEY"),
+        "Web Intelligence": check_key("TAVILY_API_KEY"),
         "Groq AI Core": check_key("GROQ_API_KEY"),
         "Cerebras Node": check_key("CEREBRAS_API_KEY"),
         "Google Gemini Node": check_key("GEMINI_API_KEY"),
-        "Mistral Node": check_key("MISTRAL_API_KEY"),
-        "Cohere Node": check_key("COHERE_API_KEY"),
-        "OpenRouter Node": check_key("QWEN_API_KEY")
+        "Mistral Node": check_key("MISTRAL_API_KEY")
     }
     db_status = "Connected" if supabase else "Disconnected"
     rows = "".join([f"<tr><td style='padding:14px; border-bottom:1px solid #e2e8f0; font-weight:500;'>{p}</td><td style='padding:14px; border-bottom:1px solid #e2e8f0; color:#10b981;'>{k1}</td><td style='padding:14px; border-bottom:1px solid #e2e8f0; color:#3b82f6;'>{k2}</td></tr>" for p, (k1, k2) in keys_status.items()])
@@ -640,23 +539,16 @@ async def admin_dashboard():
     <html lang="en">
     <head><title>Admin Console</title><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"></head>
     <body style="font-family:'Plus Jakarta Sans',sans-serif; padding:50px; background:#f8fafc; color:#0f172a;">
-        <div style="max-width:850px; margin:auto; background:#fff; padding:35px; border-radius:16px; border:1px solid #e2e8f0; box-shadow:0 4px 25px rgba(0,0,0,0.03);">
+        <div style="max-width:850px; margin:auto; background:#fff; padding:35px; border-radius:16px; border:1px solid #e2e8f0;">
             <h2 style="font-size:22px; margin-bottom:8px;">👑 Nyluvo System Admin Panel</h2>
             <p style="color:#64748b; font-size:14px; margin-bottom:24px;">Database Status: <b style="color:#10b981;">{db_status}</b></p>
             <table style="width:100%; border-collapse:collapse; text-align:left; font-size:14px;">
-                <thead>
-                    <tr style="background:#f1f5f9; color:#475569;">
-                        <th style="padding:12px 14px;">Service Node</th>
-                        <th style="padding:12px 14px;">Primary Key Status</th>
-                        <th style="padding:12px 14px;">Backup Key Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows}
-                </tbody>
+                <thead><tr style="background:#f1f5f9; color:#475569;"><th style="padding:12px 14px;">Service Node</th><th style="padding:12px 14px;">Primary Key</th><th style="padding:12px 14px;">Backup Key</th></tr></thead>
+                <tbody>{rows}</tbody>
             </table>
             <br><a href="/" style="background:#0f172a; color:#fff; padding:10px 20px; text-decoration:none; border-radius:8px; font-size:14px; font-weight:600; display:inline-block;">← Return to Workspace</a>
         </div>
     </body>
     </html>
     """
+    
