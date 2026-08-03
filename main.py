@@ -8,7 +8,7 @@ import time
 
 load_dotenv()
 
-app = FastAPI(title="Nyluvo X AI", version="17.0")
+app = FastAPI(title="Nyluvo X AI", version="18.0")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
@@ -161,24 +161,6 @@ async def chat_endpoint(request: Request):
     except Exception as e:
         return {"response": f"Error: {str(e)}"}
 
-@app.post("/auth/signup")
-async def signup(request: Request):
-    data = await request.json()
-    try:
-        supabase.auth.sign_up({"email": data.get("email"), "password": data.get("password")})
-        return {"message": "Account created! Please log in."}
-    except Exception as e:
-        return JSONResponse(status_code=400, content={"error": str(e)})
-
-@app.post("/auth/login")
-async def login(request: Request):
-    data = await request.json()
-    try:
-        res = supabase.auth.sign_in_with_password({"email": data.get("email"), "password": data.get("password")})
-        return {"session": res.session.access_token, "user": res.user.email}
-    except Exception as e:
-        return JSONResponse(status_code=400, content={"error": "Invalid credentials"})
-
 @app.get("/", response_class=HTMLResponse)
 async def home_workspace():
     return """
@@ -197,12 +179,12 @@ async def home_workspace():
                 --shadow: 0 12px 32px rgba(16, 24, 40, 0.05);
             }
             .dark {
-                --bg-main: #050811; --bg-sidebar: #090e1a; --bg-chat: #0e1626;
-                --border-color: rgba(255, 255, 255, 0.08); --text-main: #f9fafb; --text-muted: #98a2b3; 
-                --accent: #3b82f6; --accent-hover: #60a5fa; --hover-bg: #17223b;
+                --bg-main: #212121; --bg-sidebar: #171717; --bg-chat: #2f2f2f;
+                --border-color: rgba(255, 255, 255, 0.08); --text-main: #ececec; --text-muted: #b4b4b4; 
+                --accent: #ffffff; --accent-hover: #e0e0e0; --hover-bg: #212121;
                 --shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
             }
-            * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; transition: background 0.25s ease, color 0.25s ease, border-color 0.25s ease; }
+            * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease; }
             body { 
                 background: var(--bg-main); 
                 color: var(--text-main); 
@@ -210,11 +192,11 @@ async def home_workspace():
                 height: 100vh; 
                 height: 100dvh; 
                 overflow: hidden; 
-                flex-direction: row;
+                position: relative;
             }
             
             @keyframes fadeIn {
-                from { opacity: 0; transform: translateY(8px); }
+                from { opacity: 0; transform: translateY(6px); }
                 to { opacity: 1; transform: translateY(0); }
             }
             @keyframes pulseGlow {
@@ -223,93 +205,129 @@ async def home_workspace():
                 100% { opacity: 0.3; transform: scale(0.98); }
             }
 
-            .sidebar { width: 285px; background: var(--bg-sidebar); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 18px; }
-            .brand { font-size: 19px; font-weight: 700; color: var(--text-main); margin-bottom: 24px; display: flex; align-items: center; gap: 10px; padding-left: 6px; }
-            .brand span { background: linear-gradient(135deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+            .sidebar { 
+                width: 260px; 
+                background: var(--bg-sidebar); 
+                border-right: 1px solid var(--border-color); 
+                display: flex; 
+                flex-direction: column; 
+                padding: 12px; 
+                height: 100%;
+                z-index: 100;
+                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+
+            .brand { font-size: 16px; font-weight: 600; color: var(--text-main); margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; }
+            .brand span { display: flex; align-items: center; gap: 8px; }
             
-            .new-chat-btn { background: var(--accent); color: #ffffff; border: none; padding: 13px 16px; border-radius: 14px; font-weight: 600; font-size: 14px; cursor: pointer; text-align: left; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; box-shadow: 0 6px 20px rgba(59, 130, 246, 0.3); transition: all 0.2s; }
-            .new-chat-btn:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4); }
+            .new-chat-btn { background: transparent; color: var(--text-main); border: 1px solid var(--border-color); padding: 10px 14px; border-radius: 8px; font-weight: 500; font-size: 13.5px; cursor: pointer; text-align: left; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; width: 100%; }
+            .new-chat-btn:hover { background: var(--hover-bg); }
             
-            .mode-selector { display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px; }
-            .mode-label { font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; padding-left: 6px; letter-spacing: 0.6px; }
-            .mode-select { background: var(--bg-chat); border: 1px solid var(--border-color); color: var(--text-main); padding: 12px 14px; border-radius: 12px; font-size: 14px; outline: none; cursor: pointer; font-weight: 500; }
+            .mode-selector { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; padding: 0 4px; }
+            .mode-label { font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.5px; }
+            .mode-select { background: var(--bg-chat); border: 1px solid var(--border-color); color: var(--text-main); padding: 10px 12px; border-radius: 8px; font-size: 13.5px; outline: none; cursor: pointer; font-weight: 500; }
             
-            .chat-history { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px; }
-            .history-item { padding: 11px 12px; font-size: 13.5px; color: var(--text-muted); border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: 500; }
+            .chat-history { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 0 4px; }
+            .history-item { padding: 10px 12px; font-size: 13.5px; color: var(--text-muted); border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: 400; }
             .history-item:hover { background: var(--hover-bg); color: var(--text-main); }
-            .delete-chat { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 13px; opacity: 0; transition: opacity 0.2s; }
+            .delete-chat { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; opacity: 0; }
             .history-item:hover .delete-chat { opacity: 1; }
             .delete-chat:hover { color: #ef4444; }
 
-            .sidebar-footer { border-top: 1px solid var(--border-color); padding-top: 14px; display: flex; flex-direction: column; gap: 6px; }
-            .footer-btn { color: var(--text-muted); font-size: 13.5px; padding: 11px 12px; border-radius: 10px; display: flex; align-items: center; gap: 10px; background: transparent; border: none; width: 100%; cursor: pointer; text-align: left; font-weight: 500; }
+            .sidebar-footer { border-top: 1px solid var(--border-color); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+            .footer-btn { color: var(--text-muted); font-size: 13.5px; padding: 10px 12px; border-radius: 8px; display: flex; align-items: center; gap: 10px; background: transparent; border: none; width: 100%; cursor: pointer; text-align: left; font-weight: 400; }
             .footer-btn:hover { background: var(--hover-bg); color: var(--text-main); }
 
-            .main-container { flex: 1; display: flex; flex-direction: column; background: var(--bg-main); position: relative; }
-            .chat-header { padding: 18px 32px; border-bottom: 1px solid var(--border-color); font-weight: 600; font-size: 15px; display: flex; justify-content: space-between; align-items: center; background: var(--bg-main); }
+            .main-container { flex: 1; display: flex; flex-direction: column; background: var(--bg-main); position: relative; height: 100%; min-width: 0; }
+            .chat-header { padding: 12px 20px; border-bottom: 1px solid var(--border-color); font-weight: 500; font-size: 14px; display: flex; align-items: center; gap: 12px; background: var(--bg-main); }
             
-            .chat-messages { flex: 1; overflow-y: auto; padding: 30px; display: flex; flex-direction: column; gap: 26px; align-items: center; scroll-behavior: smooth; }
-            .message-wrapper { width: 100%; max-width: 800px; display: flex; gap: 16px; font-size: 15px; line-height: 1.75; position: relative; animation: fadeIn 0.35s ease; }
+            .menu-toggle-btn { background: transparent; border: none; color: var(--text-main); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px; }
+            .menu-toggle-btn:hover { background: var(--hover-bg); }
+
+            .chat-messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 24px; align-items: center; scroll-behavior: smooth; }
+            .message-wrapper { width: 100%; max-width: 768px; display: flex; gap: 16px; font-size: 15px; line-height: 1.6; position: relative; animation: fadeIn 0.3s ease; }
             .message-wrapper.user { justify-content: flex-end; }
-            .message-bubble { padding: 16px 22px; border-radius: 20px; max-width: 82%; word-break: break-word; box-shadow: var(--shadow); }
-            .message-wrapper.user .message-bubble { background: var(--accent); color: #ffffff; border-top-right-radius: 4px; }
-            .message-wrapper.ai .message-bubble { background: var(--bg-chat); border: 1px solid var(--border-color); border-top-left-radius: 4px; }
-            .msg-actions { position: absolute; right: 0; bottom: -18px; font-size: 11px; color: var(--text-muted); cursor: pointer; display: none; }
+            .message-bubble { padding: 12px 16px; border-radius: 16px; max-width: 85%; word-break: break-word; }
+            .message-wrapper.user .message-bubble { background: var(--bg-chat); border: 1px solid var(--border-color); color: var(--text-main); border-top-right-radius: 4px; }
+            .message-wrapper.ai .message-bubble { background: transparent; color: var(--text-main); padding: 0; }
+            .msg-actions { position: absolute; right: 0; bottom: -16px; font-size: 11px; color: var(--text-muted); cursor: pointer; display: none; }
             .message-wrapper:hover .msg-actions { display: block; }
 
             .typing-dots span { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); margin: 0 2px; animation: pulseGlow 1.2s infinite ease-in-out both; }
             .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
             .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
 
-            .input-container { padding: 20px; background: var(--bg-main); display: flex; justify-content: center; }
-            .input-box { width: 100%; max-width: 800px; background: var(--bg-chat); border: 1px solid var(--border-color); border-radius: 22px; display: flex; flex-direction: column; padding: 12px 18px; box-shadow: var(--shadow); }
-            .input-box:focus-within { border-color: var(--accent); box-shadow: 0 12px 40px rgba(59, 130, 246, 0.18); }
+            .input-container { padding: 16px 20px 24px 20px; background: var(--bg-main); display: flex; justify-content: center; }
+            .input-box { width: 100%; max-width: 768px; background: var(--bg-chat); border: 1px solid var(--border-color); border-radius: 20px; display: flex; flex-direction: column; padding: 10px 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+            .input-box:focus-within { border-color: var(--text-muted); }
             .input-top { display: flex; align-items: flex-end; gap: 10px; }
-            .input-box textarea { flex: 1; background: transparent; border: none; color: var(--text-main); font-size: 15px; resize: none; outline: none; padding: 6px; max-height: 180px; }
+            .input-box textarea { flex: 1; background: transparent; border: none; color: var(--text-main); font-size: 15px; resize: none; outline: none; padding: 6px; max-height: 160px; }
             
-            .input-actions { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 10px; margin-top: 8px; }
-            .tool-group { display: flex; gap: 8px; align-items: center; }
-            .tool-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 18px; display: flex; align-items: center; padding: 6px; border-radius: 8px; }
+            .input-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+            .tool-group { display: flex; gap: 6px; align-items: center; }
+            .tool-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; display: flex; align-items: center; padding: 6px; border-radius: 6px; }
             .tool-btn:hover { background: var(--hover-bg); color: var(--text-main); }
             .tool-btn.listening { color: #ef4444; animation: pulseGlow 1s infinite; }
             
-            .send-btn { background: var(--accent); color: #ffffff; border: none; width: 38px; height: 38px; border-radius: 12px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-            .send-btn:hover { background: var(--accent-hover); transform: scale(1.06); }
+            .send-btn { background: var(--text-main); color: var(--bg-main); border: none; width: 32px; height: 32px; border-radius: 50%; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+            .send-btn:hover { opacity: 0.9; }
 
-            #previewContainer { display: none; padding: 6px 12px; gap: 8px; align-items: center; font-size: 12px; color: var(--text-muted); }
-            #previewImg { width: 42px; height: 42px; border-radius: 10px; object-fit: cover; border: 1px solid var(--border-color); }
+            #previewContainer { display: none; padding: 6px 8px; gap: 8px; align-items: center; font-size: 12px; color: var(--text-muted); border-bottom: 1px solid var(--border-color); margin-bottom: 6px; }
+            #previewImg { width: 36px; height: 36px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border-color); }
 
-            .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(12px); }
-            .modal-card { background: var(--bg-sidebar); border: 1px solid var(--border-color); padding: 36px; border-radius: 26px; width: 430px; display: flex; flex-direction: column; gap: 18px; box-shadow: var(--shadow); }
-            .modal-card input { padding: 13px 16px; border-radius: 12px; border: 1px solid var(--border-color); background: var(--bg-chat); color: var(--text-main); outline: none; font-size: 14px; }
-            .primary-btn { background: var(--accent); color: #ffffff; padding: 13px; border-radius: 12px; border: none; font-weight: 600; cursor: pointer; font-size: 14px; }
-            .primary-btn:hover { background: var(--accent-hover); }
+            .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(4px); }
+            .modal-card { background: var(--bg-sidebar); border: 1px solid var(--border-color); padding: 28px; border-radius: 16px; width: 380px; display: flex; flex-direction: column; gap: 16px; }
+            .primary-btn { background: var(--text-main); color: var(--bg-main); padding: 10px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; font-size: 14px; }
 
+            /* Mobile Sidebar Overlay Drawer */
             @media (max-width: 768px) {
-                body { flex-direction: column; }
-                .sidebar { width: 100%; height: auto; max-height: 180px; }
-                .main-container { height: calc(100dvh - 180px); }
+                .sidebar {
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    bottom: 0;
+                    transform: translateX(-100%);
+                    box-shadow: 10px 0 30px rgba(0,0,0,0.5);
+                }
+                .sidebar.open {
+                    transform: translateX(0);
+                }
+                .sidebar-overlay {
+                    position: fixed;
+                    inset: 0;
+                    background: rgba(0,0,0,0.5);
+                    z-index: 90;
+                    display: none;
+                }
+                .sidebar-overlay.active {
+                    display: block;
+                }
             }
         </style>
     </head>
     <body>
+        <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
         <div id="settingsModal" class="modal-overlay" style="display:none;">
             <div class="modal-card">
-                <h3 style="font-size: 18px;">⚙️ Workspace Settings</h3>
-                <div style="background: var(--bg-chat); padding: 16px; border-radius: 14px; border: 1px solid var(--border-color);">
-                    <p style="font-size: 13.5px;"><b>Status:</b> Powered by Nyluvo Intelligence</p>
-                    <p style="font-size: 13.5px; margin-top: 8px; color: #10b981;"><b>System:</b> Fully Operational</p>
+                <h3 style="font-size: 17px;">⚙️ Settings</h3>
+                <div style="background: var(--bg-chat); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color);">
+                    <p style="font-size: 13px;"><b>Core:</b> Nyluvo Intelligence v18.0</p>
+                    <p style="font-size: 13px; margin-top: 6px; color: #10b981;"><b>Status:</b> Fully Operational</p>
                 </div>
-                <button class="primary-btn" style="background:transparent; border:1px solid var(--border-color); color:var(--text-main);" onclick="document.getElementById('settingsModal').style.display='none'">Close</button>
+                <button class="primary-btn" onclick="document.getElementById('settingsModal').style.display='none'">Close</button>
             </div>
         </div>
 
-        <div class="sidebar">
-            <div class="brand">⚡ <span>Nyluvo X AI</span></div>
-            <button class="new-chat-btn" onclick="createNewChat()">＋ New Conversation</button>
+        <div class="sidebar" id="appSidebar">
+            <div class="brand">
+                <span>⚡ Nyluvo X AI</span>
+                <button onclick="toggleSidebar()" class="menu-toggle-btn" style="font-size: 14px;">✕</button>
+            </div>
+            <button class="new-chat-btn" onclick="createNewChat()"><span>New chat</span> <span>✏️</span></button>
             
             <div class="mode-selector">
-                <div class="mode-label">Intelligence Mode</div>
+                <div class="mode-label">Model Mode</div>
                 <select id="aiMode" class="mode-select">
                     <option value="general">✨ General Assistant</option>
                     <option value="student">🎓 Student Expert</option>
@@ -319,12 +337,12 @@ async def home_workspace():
             </div>
 
             <div class="chat-history" id="chatHistoryList">
-                <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); padding: 4px 6px; font-weight: 700;">History</div>
+                <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); padding: 4px 6px; font-weight: 600;">Recent</div>
             </div>
 
             <div class="sidebar-footer">
                 <button class="footer-btn" onclick="toggleTheme()">
-                    <span id="themeIcon">☀️</span> <span id="themeText">Light Mode</span>
+                    <span id="themeIcon">☀️</span> <span id="themeText">Light mode</span>
                 </button>
                 <button class="footer-btn" onclick="openSettings()">⚙️ Settings</button>
             </div>
@@ -332,14 +350,14 @@ async def home_workspace():
 
         <div class="main-container">
             <div class="chat-header">
+                <button class="menu-toggle-btn" onclick="toggleSidebar()">☰</button>
                 <span id="currentChatTitle">New Workspace</span>
-                <span id="userStatus" style="font-size: 12px; color: #10b981; font-weight: 600;">Powered by Nyluvo Intelligence</span>
             </div>
             
             <div class="chat-messages" id="chatWindow">
                 <div class="message-wrapper ai">
-                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; flex-shrink: 0;">AI</div>
-                    <div class="message-bubble">Welcome to Nyluvo X AI. Powered by Nyluvo Intelligence, multi-modal image vision, and seamless web support.</div>
+                    <div style="width: 28px; height: 28px; background: var(--text-main); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--bg-main); font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div>
+                    <div class="message-bubble">Hello! How can I help you today?</div>
                 </div>
             </div>
 
@@ -348,18 +366,18 @@ async def home_workspace():
                     <div id="previewContainer">
                         <img id="previewImg" src="" alt="preview">
                         <span id="fileNameDisplay" style="flex:1;"></span>
-                        <button onclick="removeImage()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:16px;">✕</button>
+                        <button onclick="removeImage()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:14px;">✕</button>
                     </div>
                     <div class="input-top">
-                        <textarea rows="1" placeholder="Ask Nyluvo anything..." id="userInput"></textarea>
+                        <textarea rows="1" placeholder="Message Nyluvo..." id="userInput"></textarea>
                     </div>
                     <div class="input-actions">
                         <div class="tool-group">
-                            <label class="tool-btn" title="Upload Reference Image">
+                            <label class="tool-btn" title="Upload Image">
                                 📎
                                 <input type="file" id="imageInput" accept="image/*" style="display:none;" onchange="handleImage(event)">
                             </label>
-                            <button class="tool-btn" id="micBtn" title="Voice Dictation" onclick="toggleSpeechRecognition()">🎙️</button>
+                            <button class="tool-btn" id="micBtn" title="Voice Input" onclick="toggleSpeechRecognition()">🎙️</button>
                         </div>
                         <button class="send-btn" onclick="sendMessage()">↑</button>
                     </div>
@@ -372,12 +390,19 @@ async def home_workspace():
             let activeChatId = chats[0].id;
             let currentImageBase64 = null;
 
+            function toggleSidebar() {
+                const sidebar = document.getElementById('appSidebar');
+                const overlay = document.getElementById('sidebarOverlay');
+                sidebar.classList.toggle('open');
+                overlay.classList.toggle('active');
+            }
+
             function openSettings() { document.getElementById('settingsModal').style.display = 'flex'; }
 
             let recognition = null;
             function toggleSpeechRecognition() {
                 const micBtn = document.getElementById('micBtn');
-                if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) { alert('Speech Recognition not supported.'); return; }
+                if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) { alert('Speech not supported.'); return; }
                 if (!recognition) {
                     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
                     recognition = new SpeechRec();
@@ -402,11 +427,11 @@ async def home_workspace():
 
             function renderHistory() {
                 const list = document.getElementById('chatHistoryList');
-                list.innerHTML = '<div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); padding: 4px 6px; font-weight: 700;">History</div>';
+                list.innerHTML = '<div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); padding: 4px 6px; font-weight: 600;">Recent</div>';
                 chats.forEach(chat => {
                     list.innerHTML += `
                         <div class="history-item" onclick="switchChat(${chat.id})">
-                            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 175px;">${chat.title}</span>
+                            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 155px;">${chat.title}</span>
                             <button class="delete-chat" onclick="event.stopPropagation(); deleteChat(${chat.id})">🗑️</button>
                         </div>
                     `;
@@ -416,8 +441,12 @@ async def home_workspace():
             function createNewChat() {
                 const newChat = { id: Date.now(), title: 'New Workspace', messages: [] };
                 chats.unshift(newChat); activeChatId = newChat.id; saveChats(); loadActiveChat();
+                if(window.innerWidth <= 768) toggleSidebar();
             }
-            function switchChat(id) { activeChatId = id; loadActiveChat(); }
+            function switchChat(id) { 
+                activeChatId = id; loadActiveChat(); 
+                if(window.innerWidth <= 768) toggleSidebar();
+            }
             function deleteChat(id) {
                 chats = chats.filter(c => c.id !== id);
                 if (chats.length === 0) createNewChat();
@@ -432,10 +461,10 @@ async def home_workspace():
                 const window = document.getElementById('chatWindow');
                 window.innerHTML = '';
                 if(chat.messages.length === 0) {
-                    window.innerHTML = `<div class="message-wrapper ai"><div style="width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; flex-shrink: 0;">AI</div><div class="message-bubble">Welcome to Nyluvo X AI. Powered by Nyluvo Intelligence, multi-modal image vision, and seamless web support.</div></div>`;
+                    window.innerHTML = `<div class="message-wrapper ai"><div style="width: 28px; height: 28px; background: var(--text-main); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--bg-main); font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div><div class="message-bubble">Hello! How can I help you today?</div></div>`;
                 } else {
                     chat.messages.forEach((m, index) => {
-                        window.innerHTML += `<div class="message-wrapper ${m.role}">${m.role === 'ai' ? '<div style="width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; flex-shrink: 0;">AI</div>' : ''}<div class="message-bubble">${m.content}</div><span class="msg-actions" onclick="deleteMessage(${index})">Delete</span></div>`;
+                        window.innerHTML += `<div class="message-wrapper ${m.role}">${m.role === 'ai' ? '<div style="width: 28px; height: 28px; background: var(--text-main); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--bg-main); font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div>' : ''}<div class="message-bubble">${m.content}</div><span class="msg-actions" onclick="deleteMessage(${index})">Delete</span></div>`;
                     });
                 }
                 window.scrollTop = window.scrollHeight;
@@ -469,8 +498,8 @@ async def home_workspace():
                 const html = document.documentElement;
                 const icon = document.getElementById('themeIcon');
                 const text = document.getElementById('themeText');
-                if (html.classList.contains('dark')) { html.classList.remove('dark'); icon.innerText = '🌙'; text.innerText = 'Dark Mode'; }
-                else { html.classList.add('dark'); icon.innerText = '☀️'; text.innerText = 'Light Mode'; }
+                if (html.classList.contains('dark')) { html.classList.remove('dark'); icon.innerText = '🌙'; text.innerText = 'Dark mode'; }
+                else { html.classList.add('dark'); icon.innerText = '☀️'; text.innerText = 'Light mode'; }
             }
 
             const textarea = document.getElementById('userInput');
@@ -483,10 +512,10 @@ async def home_workspace():
                 if (!text && !currentImageBase64) return;
 
                 let chat = chats.find(c => c.id === activeChatId);
-                if(chat.messages.length === 0) chat.title = text.length > 25 ? text.substring(0, 25) + '...' : 'Interactive Query';
+                if(chat.messages.length === 0) chat.title = text.length > 25 ? text.substring(0, 25) + '...' : 'New Chat';
 
                 let displayContent = text;
-                if(currentImageBase64) displayContent += `<br><img src="${currentImageBase64}" style="max-width:200px; border-radius:10px; margin-top:8px; border:1px solid var(--border-color);">`;
+                if(currentImageBase64) displayContent += `<br><img src="${currentImageBase64}" style="max-width:200px; border-radius:8px; margin-top:8px; border:1px solid var(--border-color);">`;
 
                 chat.messages.push({ role: 'user', content: displayContent });
                 saveChats(); loadActiveChat();
@@ -496,7 +525,7 @@ async def home_workspace():
 
                 const loadingId = 'loading-' + Date.now();
                 const chatWindow = document.getElementById('chatWindow');
-                chatWindow.innerHTML += `<div class="message-wrapper ai" id="${loadingId}"><div style="width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; flex-shrink: 0;">AI</div><div class="message-bubble" style="display: flex; align-items: center; gap: 6px; color: var(--text-muted);"><span>Generating response</span><div class="typing-dots"><span></span><span></span><span></span></div></div></div>`;
+                chatWindow.innerHTML += `<div class="message-wrapper ai" id="${loadingId}"><div style="width: 28px; height: 28px; background: var(--text-main); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--bg-main); font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div><div class="message-bubble" style="display: flex; align-items: center; gap: 6px; color: var(--text-muted);"><span>Thinking</span><div class="typing-dots"><span></span><span></span><span></span></div></div></div>`;
                 chatWindow.scrollTop = chatWindow.scrollHeight;
 
                 try {
@@ -509,7 +538,7 @@ async def home_workspace():
                     saveChats(); loadActiveChat();
                 } catch (err) {
                     document.getElementById(loadingId).remove();
-                    chatWindow.innerHTML += `<div class="message-wrapper ai"><div style="width: 36px; height: 36px; background: #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; flex-shrink: 0;">!</div><div class="message-bubble" style="color: #ef4444;">Connection error. Please try again.</div></div>`;
+                    chatWindow.innerHTML += `<div class="message-wrapper ai"><div style="width: 28px; height: 28px; background: #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">!</div><div class="message-bubble" style="color: #ef4444;">Connection error. Please try again.</div></div>`;
                 }
             }
 
@@ -518,37 +547,3 @@ async def home_workspace():
     </body>
     </html>
     """
-
-@app.get("/admin", response_class=HTMLResponse)
-async def admin_dashboard():
-    def check_key(prefix):
-        return ("Configured" if os.getenv(f"{prefix}_1") else "Missing", "Configured" if os.getenv(f"{prefix}_2") else "Missing")
-
-    keys_status = {
-        "Web Intelligence": check_key("TAVILY_API_KEY"),
-        "Groq AI Core": check_key("GROQ_API_KEY"),
-        "Cerebras Node": check_key("CEREBRAS_API_KEY"),
-        "Google Gemini Node": check_key("GEMINI_API_KEY"),
-        "Mistral Node": check_key("MISTRAL_API_KEY")
-    }
-    db_status = "Connected" if supabase else "Disconnected"
-    rows = "".join([f"<tr><td style='padding:14px; border-bottom:1px solid #e2e8f0; font-weight:500;'>{p}</td><td style='padding:14px; border-bottom:1px solid #e2e8f0; color:#10b981;'>{k1}</td><td style='padding:14px; border-bottom:1px solid #e2e8f0; color:#3b82f6;'>{k2}</td></tr>" for p, (k1, k2) in keys_status.items()])
-    
-    return f"""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head><title>Admin Console</title><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"></head>
-    <body style="font-family:'Plus Jakarta Sans',sans-serif; padding:50px; background:#f8fafc; color:#0f172a;">
-        <div style="max-width:850px; margin:auto; background:#fff; padding:35px; border-radius:16px; border:1px solid #e2e8f0;">
-            <h2 style="font-size:22px; margin-bottom:8px;">👑 Nyluvo System Admin Panel</h2>
-            <p style="color:#64748b; font-size:14px; margin-bottom:24px;">Database Status: <b style="color:#10b981;">{db_status}</b></p>
-            <table style="width:100%; border-collapse:collapse; text-align:left; font-size:14px;">
-                <thead><tr style="background:#f1f5f9; color:#475569;"><th style="padding:12px 14px;">Service Node</th><th style="padding:12px 14px;">Primary Key</th><th style="padding:12px 14px;">Backup Key</th></tr></thead>
-                <tbody>{rows}</tbody>
-            </table>
-            <br><a href="/" style="background:#0f172a; color:#fff; padding:10px 20px; text-decoration:none; border-radius:8px; font-size:14px; font-weight:600; display:inline-block;">← Return to Workspace</a>
-        </div>
-    </body>
-    </html>
-    """
-    
