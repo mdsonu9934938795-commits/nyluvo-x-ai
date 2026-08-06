@@ -8,7 +8,7 @@ import time
 
 load_dotenv()
 
-app = FastAPI(title="Nyluvo X AI - Master Pro Engine", version="21.0")
+app = FastAPI(title="Nyluvo X AI - Master Pro Engine", version="2.0")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
@@ -110,9 +110,9 @@ async def call_ai_with_failover(prompt: str, mode: str, image_data: str = None) 
         ("Groq-1", "https://api.groq.com/openai/v1/chat/completions", os.getenv("GROQ_API_KEY_1"), "llama-3.3-70b-versatile", "bearer"),
         ("Groq-2", "https://api.groq.com/openai/v1/chat/completions", os.getenv("GROQ_API_KEY_2"), "llama-3.3-70b-versatile", "bearer"),
         ("Cerebras-1", "https://api.cerebras.ai/v1/chat/completions", os.getenv("CEREBRAS_API_KEY_1"), "llama3.1-70b", "bearer"),
-        ("Cerebras-2", "https://api.cerebras.ai/v1/chat/completions", os.getenv("CEREBRAS_API_KEY_2"), "llama3.1-70b", "bearer"),
-        ("Gemini-1", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent", os.getenv("GEMINI_API_KEY_1"), "gemini", "query"),
-        ("Gemini-2", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent", os.getenv("GEMINI_API_KEY_2"), "gemini", "query"),
+        ("Cerebras-2", "https://api.cerebras.ai/v1/chat/completions", os.getenv("CEREBRAS_API_KEY_2"), "llama3.1-90b", "bearer"),
+        ("Gemini-1", "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent", os.getenv("GEMINI_API_KEY_1"), "gemini", "query"),
+        ("Gemini-2", "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent", os.getenv("GEMINI_API_KEY_2"), "gemini", "query"),
         ("Mistral-1", "https://api.mistral.ai/v1/chat/completions", os.getenv("MISTRAL_API_KEY_1"), "mistral-small-latest", "bearer"),
         ("Mistral-2", "https://api.mistral.ai/v1/chat/completions", os.getenv("MISTRAL_API_KEY_2"), "mistral-small-latest", "bearer")
     ]
@@ -272,7 +272,7 @@ async def home_workspace():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Nyluvo X AI - Master Workspace 🚀</title>
+        <title>Nyluvo X AI - NXT GEN AI 🚀</title>
         <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
         <style>
             :root {
@@ -425,8 +425,8 @@ async def home_workspace():
             <div class="modal-card">
                 <h3 style="font-size: 18px; font-weight: 700;">⚙️ Settings</h3>
                 <div style="background: var(--bg-chat); padding: 14px; border-radius: 12px; border: 1px solid var(--border-color);">
-                    <p style="font-size: 13.5px;"><b>Core:</b> Nyluvo Intelligence v21.0 🚀</p>
-                    <p style="font-size: 13.5px; margin-top: 6px; color: #10b981;"><b>Status:</b> Fully Operational ✨</p>
+                    <p style="font-size: 13.5px;"><b>Core:</b> Nyluvo Intelligence v2.0 🚀</p>
+                    <p style="font-size: 13.5px; margin-top: 6px; color: #10b981;"><b>Status:</b> Fully Operated by Nyluvo X AI pvt ltd.✨</p>
                 </div>
                 <button class="primary-btn" style="background: transparent; border: 1px solid var(--border-color); color: var(--text-main); box-shadow: none;" onclick="document.getElementById('settingsModal').style.display='none'">Close</button>
             </div>
@@ -474,7 +474,7 @@ async def home_workspace():
             <div class="chat-messages" id="chatWindow">
                 <div class="message-wrapper ai">
                     <div style="width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div>
-                    <div class="message-bubble">Hello! 👋 I'm Nyluvo, your brilliant and friendly AI companion! ✨ How can I help you make magic today? 💖</div>
+                    <div class="message-bubble">Hello! 👋 I'm Nyluvo, your brilliant and friendly AI companion! ✨ How can I help you today? 💖</div>
                 </div>
             </div>
 
@@ -486,7 +486,7 @@ async def home_workspace():
                         <button onclick="removeImage()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:14px;">✕</button>
                     </div>
                     <div class="input-top">
-                        <textarea rows="1" placeholder="Message Nyluvo with love & emojis... ✨" id="userInput"></textarea>
+                        <textarea rows="1" placeholder="Ask Nyluvo with love... ✨" id="userInput"></textarea>
                     </div>
                     <div class="input-actions">
                         <div class="tool-group">
