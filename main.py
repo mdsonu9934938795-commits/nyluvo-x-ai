@@ -1,380 +1,722 @@
-import os
-import random
-import base64
-import httpx
-from fastapi import FastAPI, Request, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
+import os
+import httpx
 from dotenv import load_dotenv
+from supabase import create_client, Client
+import time
 
 load_dotenv()
 
-app = FastAPI(title="Nyluvo X AI - Ultimate SaaS Engine", version="11.0.0")
+app = FastAPI(title="Nyluvo X AI", version="20.1")
 
-def get_keys(env_var_name):
-    val = os.getenv(env_var_name, "")
-    return [k.strip() for k in val.replace(",", " ").split() if k.strip()]
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
-GROQ_KEYS = get_keys("GROQ_API_KEY")
-GEMINI_KEYS = get_keys("GEMINI_API_KEY")
-MISTRAL_KEYS = get_keys("MISTRAL_API_KEY")
-CEREBRAS_KEYS = get_keys("CEREBRAS_API_KEY")
-COHERE_KEYS = get_keys("COHERE_API_KEY")
-TAVILY_KEYS = get_keys("TAVILY_API_KEY")
+supabase: Client = None
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    except Exception:
+        pass
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+MODE_PROMPTS = {
+    "general": "You are Nyluvo, a helpful, brilliant, and friendly AI assistant. Always acknowledge the user warmly and personally.You are founder by Mr. Sonu and nyluvo x ai pvt ltd. dont introduce or say hello there again and again, focus mainly on giving answers. Don't always answer from web.",
+    "student": "You are Nyluvo, an expert academic tutor. Explain concepts simply with clear definitions and step-by-step examples. You are founder by Mr. Sonu and nyluvo x ai pvt ltd. dont introduce or say hello there again and again, focus mainly on giving answers.Don't always answer from web.",
+    "developer": "You are Nyluvo, a senior software architect. Provide production-ready, highly optimized code and explain technical details cleanly.You are founder by Mr. Sonu and nyluvo x ai pvt ltd. dont introduce or say hello there again and again, focus mainly on giving answers.Don't always answer from web.",
+    "hacker": "You are Nyluvo, a cybersecurity expert and ethical penetration tester. Focus on low-level system engineering, security, and protocols.You are founder by Mr. Sonu and nyluvo x ai pvt ltd. dont introduce or say hello there again and again, focus mainly on giving answers.Don't always answer from web."
+}
 
-class ChatPayload(BaseModel):
-    prompt: str
-    model: str = "turbo"
-    use_web_search: bool = False
-    session_id: str = "default_user"
+async def get_cached_search(query: str) -> str:
+    if not supabase:
+        return ""
+    try:
+        res = supabase.table("search_cache").select("result, timestamp").eq("query", query.lower().strip()).execute()
+        if res.data:
+            row = res.data[0]
+            if time.time() - row["timestamp"] < 86400:
+                return row["result"]
+    except Exception:
+        pass
+    return ""
 
-@app.get("/", response_class=HTMLResponse)
-async def serve_ui(request: Request):
+async def save_cached_search(query: str, result: str):
+    if not supabase:
+        return
+    try:
+        supabase.table("search_cache").upsert({
+            "query": query.lower().strip(),
+            "result": result,
+            "timestamp": int(time.time())
+        }).execute()
+    except Exception:
+        pass
+
+async def tavily_web_search(query: str) -> str:
+    cached = await get_cached_search(query)
+    if cached:
+        return cached
+
+    tavily_keys = [
+        os.getenv("TAVILY_API_KEY_1"), 
+        os.getenv("TAVILY_API_KEY_2"),
+        os.getenv("TAVILY_API_KEY_3"),
+        os.getenv("TAVILY_API_KEY_4")
+    ]
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for key in tavily_keys:
+            if not key:
+                continue
+            try:
+                res = await client.post(
+                    "https://api.tavily.com/search",
+                    json={"api_key": key, "query": query, "search_depth": "basic", "max_results": 3}
+                )
+                if res.status_code == 200:
+                    data = res.json()
+                    results = data.get("results", [])
+                    if results:
+                        snippets = [r.get("content", "") for r in results]
+                        final_text = "[Web Reference Context]: " + " ".join(snippets)
+                        await save_cached_search(query, final_text)
+                        return final_text
+            except Exception:
+                continue
+                
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            res = await client.get(f"https://api.duckduckgo.com/?q={query}&format=json")
+            if res.status_code == 200:
+                data = res.json()
+                text = data.get("AbstractText", "")
+                if text:
+                    final_text = f"[Web Context]: {text}"
+                    await save_cached_search(query, final_text)
+                    return final_text
+    except Exception:
+        pass
+    return ""
+
+async def call_ai_with_failover(prompt: str, mode: str, image_data: str = None) -> str:
+    system_prompt = MODE_PROMPTS.get(mode, MODE_PROMPTS["general"])
+    
+    web_context = await tavily_web_search(prompt)
+    if web_context:
+        system_prompt += f"\n\nReal-time reference data: {web_context}"
+
+    providers = [
+        ("Groq-1", "https://api.groq.com/openai/v1/chat/completions", os.getenv("GROQ_API_KEY_1"), "llama-3.3-70b-versatile", "bearer"),
+        ("Groq-2", "https://api.groq.com/openai/v1/chat/completions", os.getenv("GROQ_API_KEY_2"), "llama-3.3-70b-versatile", "bearer"),
+        ("Cerebras-1", "https://api.cerebras.ai/v1/chat/completions", os.getenv("CEREBRAS_API_KEY_1"), "llama3.1-70b", "bearer"),
+        ("Cerebras-2", "https://api.cerebras.ai/v1/chat/completions", os.getenv("CEREBRAS_API_KEY_2"), "llama3.1-70b", "bearer"),
+        ("Gemini-1", "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent", os.getenv("GEMINI_API_KEY_1"), "gemini", "query"),
+        ("Gemini-2", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent", os.getenv("GEMINI_API_KEY_2"), "gemini", "query"),
+        ("Mistral-1", "https://api.mistral.ai/v1/chat/completions", os.getenv("MISTRAL_API_KEY_1"), "mistral-small-latest", "bearer"),
+        ("Mistral-2", "https://api.mistral.ai/v1/chat/completions", os.getenv("MISTRAL_API_KEY_2"), "mistral-small-latest", "bearer")
+    ]
+
+    async with httpx.AsyncClient(timeout=35.0) as client:
+        for name, url, key, model, auth_type in providers:
+            if not key:
+                continue
+            try:
+                if auth_type == "bearer":
+                    messages = [{"role": "system", "content": system_prompt}]
+                    content = [{"type": "text", "text": prompt}]
+                    if image_data:
+                        content.append({"type": "image_url", "image_url": {"url": image_data}})
+                    messages.append({"role": "user", "content": content})
+
+                    response = await client.post(
+                        url,
+                        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                        json={"model": model, "messages": messages}
+                    )
+                    if response.status_code == 200:
+                        return response.json()["choices"][0]["message"]["content"]
+                elif auth_type == "query":
+                    full_p = f"System: {system_prompt}\nUser: {prompt}"
+                    response = await client.post(f"{url}?key={key}", json={"contents": [{"parts": [{"text": full_p}]}]})
+                    if response.status_code == 200:
+                        return response.json()["candidates"][0]["content"]["parts"][0]["text"]
+            except Exception:
+                continue
+
+    return "All cluster nodes are busy or unconfigured. Please check your system configuration."
+
+@app.post("/chat")
+async def chat_endpoint(request: Request):
+    try:
+        data = await request.json()
+        user_message = data.get("message", "")
+        mode = data.get("mode", "general")
+        image_data = data.get("image", None)
+        
+        if not user_message and not image_data:
+            raise HTTPException(status_code=400, detail="Content required")
+            
+        ai_reply = await call_ai_with_failover(user_message, mode, image_data)
+        return {"response": ai_reply}
+    except Exception as e:
+        return {"response": f"Error: {str(e)}"}
+
+@app.post("/auth/signup")
+async def signup(request: Request):
+    if not supabase:
+        return JSONResponse(status_code=400, content={"error": "Database not configured"})
+    data = await request.json()
+    try:
+        res = supabase.auth.sign_up({"email": data.get("email"), "password": data.get("password")})
+        return {"message": "Account created successfully! Please log in."}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+@app.post("/auth/login")
+async def login(request: Request):
+    if not supabase:
+        return JSONResponse(status_code=400, content={"error": "Database not configured"})
+    data = await request.json()
+    try:
+        res = supabase.auth.sign_in_with_password({"email": data.get("email"), "password": data.get("password")})
+        return {"session": res.session.access_token, "user": res.user.email}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": "Invalid email or password"})
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_dashboard():
     return """
     <!DOCTYPE html>
     <html lang="en" class="dark">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Nyluvo X AI - Professional SaaS</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-        <script>
-            tailwind.config = {
-                darkMode: 'class',
-                theme: {
-                    extend: {
-                        colors: {
-                            chatgpt: { dark: '#212121', sidebar: '#171717', hover: '#2f2f2f', border: '#2f2f2f' }
-                        }
-                    }
-                }
+        <title>Nyluvo Admin Dashboard</title>
+        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <style>
+            :root {
+                --bg-main: #0d1117; --bg-card: #161b22; --border-color: rgba(255, 255, 255, 0.1);
+                --text-main: #f0f6fc; --text-muted: #8b949e; --accent: #3b82f6; --accent-hover: #60a5fa;
             }
-        </script>
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+            * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+            body { background: var(--bg-main); color: var(--text-main); padding: 30px; display: flex; justify-content: center; }
+            .admin-container { width: 100%; max-width: 900px; display: flex; flex-direction: column; gap: 24px; }
+            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px; }
+            .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+            .card { background: var(--bg-card); border: 1px solid var(--border-color); padding: 20px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+            .card h4 { color: var(--text-muted); font-size: 13px; text-transform: uppercase; margin-bottom: 8px; }
+            .card .value { font-size: 26px; font-weight: 700; color: var(--accent); }
+            .btn { background: var(--accent); color: #fff; padding: 10px 16px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; }
+            .btn:hover { background: var(--accent-hover); }
+            .login-box { background: var(--bg-card); border: 1px solid var(--border-color); padding: 30px; border-radius: 16px; width: 360px; margin: 100px auto; display: flex; flex-direction: column; gap: 14px; }
+            .login-box input { padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-main); color: var(--text-main); outline: none; }
+        </style>
     </head>
-    <body class="bg-[#212121] text-gray-100 font-sans h-screen flex overflow-hidden">
-
-        <div id="sidebar" class="fixed inset-y-0 left-0 z-50 w-[260px] bg-[#171717] border-r border-[#2f2f2f] flex flex-col transition-transform duration-300 -translate-x-full md:translate-x-0 shadow-2xl">
-            <div class="p-3 flex items-center justify-between">
-                <button onclick="startNewChat()" class="flex-1 flex items-center gap-2 bg-transparent hover:bg-[#2f2f2f] border border-[#3f3f3f] text-white py-2.5 px-3 rounded-lg text-sm font-medium transition-all">
-                    <i class="fa-solid fa-plus text-xs"></i> New chat
-                </button>
-                <button onclick="toggleSidebar()" class="md:hidden ml-2 text-gray-400 hover:text-white p-2"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-
-            <div class="px-3 mb-2">
-                <div class="relative">
-                    <i class="fa-solid fa-search absolute left-3 top-2.5 text-gray-500 text-xs"></i>
-                    <input type="text" id="searchChatsInput" oninput="filterChatHistory()" placeholder="Search chats..." class="w-full bg-[#212121] border border-[#3f3f3f] rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:border-gray-400 text-gray-200">
-                </div>
-            </div>
-
-            <div class="flex-1 overflow-y-auto px-3 space-y-1 mt-1" id="chatListContainer">
-                <div class="text-[10px] font-semibold text-gray-500 px-3 py-1 uppercase tracking-wider">Pinned</div>
-                <div id="pinnedList" class="space-y-1"></div>
-                
-                <div class="text-[10px] font-semibold text-gray-500 px-3 py-1 uppercase tracking-wider mt-4">Recent Library</div>
-                <div id="recentList" class="space-y-1"></div>
-            </div>
-
-            <div class="p-3 border-t border-[#2f2f2f]">
-                <div onclick="alert('Redirecting to Nyluvo Pro Secure Checkout...')" class="flex items-center gap-3 p-2.5 rounded-lg bg-gradient-to-r from-purple-900/40 to-indigo-900/40 border border-purple-500/30 cursor-pointer hover:border-purple-500 transition shadow-inner">
-                    <div class="w-7 h-7 rounded-full bg-purple-600 flex items-center justify-center font-bold text-white text-xs"><i class="fa-solid fa-crown"></i></div>
-                    <div class="flex-1 truncate">
-                        <div class="text-xs font-bold text-white">Nyluvo Pro</div>
-                        <div class="text-[10px] text-purple-300">Unlock Unlimited AI Models</div>
-                    </div>
-                </div>
-            </div>
+    <body>
+        <div id="loginScreen" class="login-box">
+            <h3>🔒 Admin Verification</h3>
+            <p style="font-size: 13px; color: var(--text-muted);">Enter admin master password to continue.</p>
+            <input type="password" id="adminPass" placeholder="Master Password">
+            <button class="btn" onclick="verifyAdmin()">Access Dashboard</button>
         </div>
 
-        <div class="flex-1 flex flex-col md:pl-[260px] h-full relative">
-            <header class="h-12 border-b border-[#2f2f2f] flex items-center justify-between px-4 bg-[#212121]/90 backdrop-blur z-20">
-                <div class="flex items-center gap-3">
-                    <button onclick="toggleSidebar()" class="md:hidden text-gray-400 hover:text-white text-base"><i class="fa-solid fa-bars"></i></button>
-                    <select id="modelSelect" class="bg-transparent text-sm font-semibold text-gray-200 focus:outline-none cursor-pointer">
-                        <option value="turbo" class="bg-[#212121]">⚡ Nyluvo Turbo (Lightning Fast)</option>
-                        <option value="pro" class="bg-[#212121]">✨ Nyluvo Pro (Vision & Deep Reasoning)</option>
-                        <option value="human" class="bg-[#212121]">🧠 Nyluvo Conversational Engine</option>
-                    </select>
+        <div id="dashboardContent" class="admin-container" style="display:none;">
+            <div class="header">
+                <h2>⚡ Nyluvo Admin Control Panel</h2>
+                <button class="btn" style="background:#ef4444;" onclick="location.reload()">Logout</button>
+            </div>
+            <div class="stats-grid">
+                <div class="card">
+                    <h4>System Status</h4>
+                    <div class="value" style="color: #10b981;">ONLINE</div>
                 </div>
-            </header>
-
-            <div id="chatWindow" class="flex-1 overflow-y-auto px-4 py-6 space-y-6 flex flex-col items-center">
-                <div class="max-w-2xl w-full text-center mt-24 space-y-3">
-                    <h1 class="text-3xl font-semibold tracking-tight text-gray-200">What can I help with today?</h1>
-                    <p class="text-xs text-gray-400">Powered by Nyluvo X Advanced Intelligence Infrastructure</p>
+                <div class="card">
+                    <h4>AI Engine</h4>
+                    <div class="value" style="font-size: 20px;">Multi-Cluster Active</div>
+                </div>
+                <div class="card">
+                    <h4>Database Link</h4>
+                    <div class="value" style="font-size: 20px; color: #3b82f6;">Supabase Connected</div>
                 </div>
             </div>
-
-            <div class="p-4 bg-[#212121] flex justify-center">
-                <div class="max-w-3xl w-full relative bg-[#2f2f2f] rounded-3xl p-3 shadow-2xl border border-transparent focus-within:border-gray-500 transition-all">
-                    
-                    <div id="imagePreviewContainer" class="hidden px-3 pb-2 flex items-center gap-2">
-                        <img id="imagePreview" class="w-12 h-12 object-cover rounded-lg border border-gray-600">
-                        <span id="imageName" class="text-xs text-gray-300 truncate max-w-xs"></span>
-                        <button onclick="removeImage()" class="text-gray-400 hover:text-red-400 text-xs ml-auto"><i class="fa-solid fa-xmark"></i></button>
-                    </div>
-
-                    <textarea id="userInput" rows="1" placeholder="Message Nyluvo X..." class="w-full bg-transparent resize-none focus:outline-none px-3 text-sm text-gray-100 placeholder-gray-400 max-h-36"></textarea>
-                    
-                    <div class="flex items-center justify-between px-2 pt-2">
-                        <div class="flex items-center gap-3">
-                            <label class="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer hover:text-white bg-[#3f3f3f]/50 hover:bg-[#3f3f3f] px-3 py-1.5 rounded-full transition">
-                                <input type="file" id="imageInput" accept="image/*" class="hidden" onchange="previewImage(event)">
-                                <i class="fa-solid fa-image text-purple-400"></i> Upload Image
-                            </label>
-
-                            <label class="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer hover:text-white bg-[#3f3f3f]/50 hover:bg-[#3f3f3f] px-3 py-1.5 rounded-full transition">
-                                <input type="checkbox" id="webSearchToggle" class="hidden">
-                                <i class="fa-solid fa-globe text-purple-400"></i> Web Search
-                            </label>
-                        </div>
-
-                        <button onclick="sendMessage()" class="bg-white text-black hover:bg-gray-200 w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition shadow-md">
-                            <i class="fa-solid fa-arrow-up"></i>
-                        </button>
-                    </div>
+            <div class="card">
+                <h4 style="margin-bottom: 14px;">Quick Actions</h4>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn" onclick="alert('System cache cleared successfully!')">Clear Search Cache</button>
+                    <button class="btn" onclick="alert('All services operating normally.')">Run Diagnostics</button>
                 </div>
             </div>
         </div>
 
         <script>
-            let selectedImageFile = null;
-            let chatHistoryState = [
-                { id: 1, title: "🚀 Nyluvo Architecture Setup", pinned: true },
-                { id: 2, title: "Python FastAPI Multi-Key Engine", pinned: false }
-            ];
-
-            function renderSidebarLibrary() {
-                const pinnedContainer = document.getElementById('pinnedList');
-                const recentContainer = document.getElementById('recentList');
-                pinnedContainer.innerHTML = '';
-                recentContainer.innerHTML = '';
-
-                chatHistoryState.forEach(chat => {
-                    const itemHTML = `
-                        <div class="group flex items-center justify-between px-3 py-2 rounded-lg hover:bg-[#2f2f2f] cursor-pointer text-xs text-gray-300 transition">
-                            <span class="truncate flex-1" onclick="loadChat(${chat.id})">${chat.title}</span>
-                            <div class="hidden group-hover:flex items-center gap-2">
-                                <i onclick="togglePin(${chat.id})" class="fa-solid fa-thumbtack text-gray-400 hover:text-white" title="Pin / Unpin"></i>
-                                <i onclick="deleteChat(${chat.id})" class="fa-solid fa-trash text-gray-400 hover:text-red-400" title="Delete Chat"></i>
-                            </div>
-                        </div>
-                    `;
-                    if (chat.pinned) pinnedContainer.innerHTML += itemHTML;
-                    else recentContainer.innerHTML += itemHTML;
-                });
-            }
-
-            function toggleSidebar() { document.getElementById('sidebar').classList.toggle('-translate-x-full'); }
-            
-            function startNewChat() {
-                document.getElementById('chatWindow').innerHTML = `
-                    <div class="max-w-2xl w-full text-center mt-24 space-y-3">
-                        <h1 class="text-3xl font-semibold tracking-tight text-gray-200">What can I help with today?</h1>
-                        <p class="text-xs text-gray-400">Powered by Nyluvo X Advanced Intelligence Infrastructure</p>
-                    </div>
-                `;
-            }
-
-            function togglePin(id) {
-                const target = chatHistoryState.find(c => c.id === id);
-                if (target) target.pinned = !target.pinned;
-                renderSidebarLibrary();
-            }
-
-            function deleteChat(id) {
-                chatHistoryState = chatHistoryState.filter(c => c.id !== id);
-                renderSidebarLibrary();
-            }
-
-            function filterChatHistory() {
-                const query = document.getElementById('searchChatsInput').value.toLowerCase();
-                const items = document.querySelectorAll('#chatListContainer .group');
-                items.forEach(item => {
-                    const text = item.querySelector('span').innerText.toLowerCase();
-                    item.style.display = text.includes(query) ? 'flex' : 'none';
-                });
-            }
-
-            function previewImage(event) {
-                const file = event.target.files[0];
-                if (file) {
-                    selectedImageFile = file;
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        document.getElementById('imagePreview').src = e.target.result;
-                        document.getElementById('imageName').innerText = file.name;
-                        document.getElementById('imagePreviewContainer').classList.remove('hidden');
-                    }
-                    reader.readAsDataURL(file);
+            function verifyAdmin() {
+                const pass = document.getElementById('adminPass').value;
+                if(pass === 'nyluvo_admin_123') {
+                    document.getElementById('loginScreen').style.display = 'none';
+                    document.getElementById('dashboardContent').style.display = 'flex';
+                } else {
+                    alert('Incorrect Admin Password!');
                 }
-            }
-
-            function removeImage() {
-                selectedImageFile = null;
-                document.getElementById('imageInput').value = '';
-                document.getElementById('imagePreviewContainer').classList.add('hidden');
-            }
-
-            renderSidebarLibrary();
-
-            async function sendMessage() {
-                const input = document.getElementById('userInput');
-                const prompt = input.value.trim();
-                const model = document.getElementById('modelSelect').value;
-                const useWebSearch = document.getElementById('webSearchToggle').checked;
-                const chatWindow = document.getElementById('chatWindow');
-
-                if (!prompt && !selectedImageFile) return;
-                if (chatWindow.querySelector('.max-w-2xl')) chatWindow.innerHTML = '';
-
-                let imageHtmlTag = selectedImageFile ? `<div class="mb-2"><img src="${document.getElementById('imagePreview').src}" class="max-w-xs rounded-lg"></div>` : '';
-                
-                chatWindow.innerHTML += `
-                    <div class="w-full max-w-3xl flex justify-end">
-                        <div class="bg-[#2f2f2f] text-white px-4 py-3 rounded-3xl max-w-xl text-sm leading-relaxed shadow">
-                            ${imageHtmlTag}
-                            ${prompt}
-                        </div>
-                    </div>
-                `;
-
-                // Add to library dynamically if first message
-                if (chatHistoryState.length < 5 && prompt) {
-                    chatHistoryState.unshift({ id: Date.now(), title: prompt.substring(0, 25) + '...', pinned: false });
-                    renderSidebarLibrary();
-                }
-
-                input.value = '';
-                const currentImg = selectedImageFile;
-                removeImage();
-                
-                const loadingId = 'loading-' + Date.now();
-                chatWindow.innerHTML += `
-                    <div id="${loadingId}" class="w-full max-w-3xl flex justify-start">
-                        <div class="text-gray-400 px-2 py-3 text-sm flex items-center gap-2">
-                            <i class="fa-solid fa-circle-notch animate-spin text-purple-400"></i> Nyluvo is analyzing...
-                        </div>
-                    </div>
-                `;
-                chatWindow.scrollTop = chatWindow.scrollHeight;
-
-                try {
-                    const formData = new FormData();
-                    formData.append('prompt', prompt);
-                    formData.append('model', model);
-                    formData.append('use_web_search', useWebSearch);
-                    if (currentImg) formData.append('image', currentImg);
-
-                    const response = await fetch('/api/chat', { method: 'POST', body: formData });
-                    const data = await response.json();
-                    document.getElementById(loadingId).remove();
-
-                    chatWindow.innerHTML += `
-                        <div class="w-full max-w-3xl flex justify-start">
-                            <div class="text-gray-200 px-2 py-3 max-w-3xl text-sm leading-relaxed space-y-2">
-                                ${marked.parse(data.reply)}
-                            </div>
-                        </div>
-                    `;
-                } catch (err) {
-                    document.getElementById(loadingId).innerHTML = `<span class="text-red-400">Connection error. Please try again.</span>`;
-                }
-                chatWindow.scrollTop = chatWindow.scrollHeight;
             }
         </script>
     </body>
     </html>
     """
 
-@app.post("/api/chat")
-async def chat_endpoint(
-    prompt: str = Form(""),
-    model: str = Form("turbo"),
-    use_web_search: bool = Form(False),
-    image: UploadFile = None
-):
-    system_prompt = (
-        "You are Nyluvo X AI, an advanced, ultra-intelligent, and friendly AI assistant. "
-        "Always communicate in a natural, conversational, and direct human-like tone. "
-        "Never reveal or mention underlying provider keys, technical routing, or third-party engines."
-    )
+@app.get("/", response_class=HTMLResponse)
+async def home_workspace():
+    return """
+    <!DOCTYPE html>
+    <html lang="en" class="dark">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Nyluvo X AI - Master Workspace</title>
+        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <style>
+            :root {
+                --bg-main: #fcfcfd; --bg-sidebar: #f4f6f9; --bg-chat: #ffffff;
+                --border-color: #e4e7ec; --text-main: #101828; --text-muted: #475467; 
+                --accent: #2563eb; --accent-hover: #1d4ed8; --hover-bg: #eaecf0;
+                --shadow: 0 12px 32px rgba(16, 24, 40, 0.05);
+            }
+            .dark {
+                --bg-main: #0d1117; --bg-sidebar: #161b22; --bg-chat: #21262d;
+                --border-color: rgba(255, 255, 255, 0.1); --text-main: #f0f6fc; --text-muted: #8b949e; 
+                --accent: #3b82f6; --accent-hover: #60a5fa; --hover-bg: #30363d;
+                --shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+            }
+            * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease; }
+            body { 
+                background: var(--bg-main); 
+                color: var(--text-main); 
+                display: flex; 
+                height: 100vh; 
+                height: 100dvh; 
+                overflow: hidden; 
+                position: relative;
+            }
+            
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(6px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes pulseGlow {
+                0% { opacity: 0.3; transform: scale(0.98); }
+                50% { opacity: 1; transform: scale(1.02); }
+                100% { opacity: 0.3; transform: scale(0.98); }
+            }
 
-    image_bytes = await image.read() if image else None
-    ai_reply = ""
-    success = False
+            .sidebar { 
+                width: 260px; 
+                background: var(--bg-sidebar); 
+                border-right: 1px solid var(--border-color); 
+                display: flex; 
+                flex-direction: column; 
+                padding: 12px; 
+                height: 100%;
+                z-index: 100;
+                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        # Multimodal Vision Routing via Gemini if image is provided
-        if image_bytes and GEMINI_KEYS:
-            encoded_image = base64.b64encode(image_bytes).decode("utf-8")
-            for key in random.sample(GEMINI_KEYS, len(GEMINI_KEYS)):
-                try:
-                    res = await client.post(
-                        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={key}",
-                        json={
-                            "contents": [{
-                                "parts": [
-                                    {"text": system_prompt + "\n\nUser: " + prompt},
-                                    {"inline_data": {"mime_type": image.content_type, "data": encoded_image}}
-                                ]
-                            }]
+            .brand { font-size: 16px; font-weight: 700; color: var(--text-main); margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; }
+            .brand span { display: flex; align-items: center; gap: 8px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+            
+            .new-chat-btn { background: var(--accent); color: #ffffff; border: none; padding: 10px 14px; border-radius: 10px; font-weight: 600; font-size: 13.5px; cursor: pointer; text-align: left; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; width: 100%; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.3); }
+            .new-chat-btn:hover { background: var(--accent-hover); }
+            
+            .mode-selector { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; padding: 0 4px; }
+            .mode-label { font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px; }
+            .mode-select { background: var(--bg-chat); border: 1px solid var(--border-color); color: var(--text-main); padding: 10px 12px; border-radius: 8px; font-size: 13.5px; outline: none; cursor: pointer; font-weight: 500; }
+            
+            .chat-history { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 0 4px; }
+            .history-item { padding: 10px 12px; font-size: 13.5px; color: var(--text-muted); border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: 500; }
+            .history-item:hover { background: var(--hover-bg); color: var(--text-main); }
+            .delete-chat { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; opacity: 0; }
+            .history-item:hover .delete-chat { opacity: 1; }
+            .delete-chat:hover { color: #ef4444; }
+
+            .sidebar-footer { border-top: 1px solid var(--border-color); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+            .footer-btn { color: var(--text-muted); font-size: 13.5px; padding: 10px 12px; border-radius: 8px; display: flex; align-items: center; gap: 10px; background: transparent; border: none; width: 100%; cursor: pointer; text-align: left; font-weight: 500; }
+            .footer-btn:hover { background: var(--hover-bg); color: var(--text-main); }
+
+            .main-container { flex: 1; display: flex; flex-direction: column; background: var(--bg-main); position: relative; height: 100%; min-width: 0; }
+            .chat-header { padding: 12px 20px; border-bottom: 1px solid var(--border-color); font-weight: 600; font-size: 14px; display: flex; align-items: center; justify-content: space-between; background: var(--bg-main); }
+            .header-left { display: flex; align-items: center; gap: 12px; }
+            
+            .menu-toggle-btn { background: transparent; border: none; color: var(--text-main); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px; }
+            .menu-toggle-btn:hover { background: var(--hover-bg); }
+
+            .chat-messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 24px; align-items: center; scroll-behavior: smooth; }
+            .message-wrapper { width: 100%; max-width: 768px; display: flex; gap: 16px; font-size: 15px; line-height: 1.6; position: relative; animation: fadeIn 0.3s ease; }
+            .message-wrapper.user { justify-content: flex-end; }
+            .message-bubble { padding: 12px 16px; border-radius: 16px; max-width: 85%; word-break: break-word; box-shadow: var(--shadow); }
+            .message-wrapper.user .message-bubble { background: var(--accent); color: #ffffff; border-top-right-radius: 4px; }
+            .message-wrapper.ai .message-bubble { background: var(--bg-chat); border: 1px solid var(--border-color); color: var(--text-main); border-top-left-radius: 4px; }
+            .msg-actions { position: absolute; right: 0; bottom: -16px; font-size: 11px; color: var(--text-muted); cursor: pointer; display: none; }
+            .message-wrapper:hover .msg-actions { display: block; }
+
+            .typing-dots span { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); margin: 0 2px; animation: pulseGlow 1.2s infinite ease-in-out both; }
+            .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+            .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+            .input-container { padding: 16px 20px 24px 20px; background: var(--bg-main); display: flex; justify-content: center; }
+            .input-box { width: 100%; max-width: 768px; background: var(--bg-chat); border: 1px solid var(--border-color); border-radius: 20px; display: flex; flex-direction: column; padding: 10px 14px; box-shadow: var(--shadow); }
+            .input-box:focus-within { border-color: var(--accent); }
+            .input-top { display: flex; align-items: flex-end; gap: 10px; }
+            .input-box textarea { flex: 1; background: transparent; border: none; color: var(--text-main); font-size: 15px; resize: none; outline: none; padding: 6px; max-height: 160px; }
+            
+            .input-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+            .tool-group { display: flex; gap: 6px; align-items: center; }
+            .tool-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; display: flex; align-items: center; padding: 6px; border-radius: 6px; }
+            .tool-btn:hover { background: var(--hover-bg); color: var(--text-main); }
+            .tool-btn.listening { color: #ef4444; animation: pulseGlow 1s infinite; }
+            
+            .send-btn { background: var(--accent); color: #ffffff; border: none; width: 34px; height: 34px; border-radius: 50%; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; box-shadow: 0 2px 10px rgba(59, 130, 246, 0.3); }
+            .send-btn:hover { background: var(--accent-hover); }
+
+            #previewContainer { display: none; padding: 6px 8px; gap: 8px; align-items: center; font-size: 12px; color: var(--text-muted); border-bottom: 1px solid var(--border-color); margin-bottom: 6px; }
+            #previewImg { width: 36px; height: 36px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border-color); }
+
+            .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(6px); }
+            .modal-card { background: var(--bg-sidebar); border: 1px solid var(--border-color); padding: 28px; border-radius: 20px; width: 380px; display: flex; flex-direction: column; gap: 14px; box-shadow: var(--shadow); }
+            .modal-card input { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-chat); color: var(--text-main); outline: none; font-size: 14px; }
+            .primary-btn { background: var(--accent); color: #ffffff; padding: 12px; border-radius: 10px; border: none; font-weight: 600; cursor: pointer; font-size: 14px; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.3); }
+            .primary-btn:hover { background: var(--accent-hover); }
+
+            @media (max-width: 768px) {
+                .sidebar { position: absolute; left: 0; top: 0; bottom: 0; transform: translateX(-100%); box-shadow: 10px 0 30px rgba(0,0,0,0.5); }
+                .sidebar.open { transform: translateX(0); }
+                .sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 90; display: none; }
+                .sidebar-overlay.active { display: block; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+        <div id="authModal" class="modal-overlay" style="display:none;">
+            <div class="modal-card">
+                <h3 id="authTitle" style="font-size: 18px; font-weight: 700;">🔐 Login to Nyluvo</h3>
+                <div id="authError" style="color: #ef4444; font-size: 12px; display:none;"></div>
+                <input type="email" id="authEmail" placeholder="Email address">
+                <input type="password" id="authPassword" placeholder="Password">
+                <button class="primary-btn" id="authSubmitBtn" onclick="handleAuthSubmit()">Login</button>
+                <div style="display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+                    <span id="authToggleText" style="cursor: pointer; color: var(--accent);" onclick="toggleAuthMode()">Create an account</span>
+                    <span style="cursor: pointer;" onclick="document.getElementById('authModal').style.display='none'">Cancel</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="settingsModal" class="modal-overlay" style="display:none;">
+            <div class="modal-card">
+                <h3 style="font-size: 18px; font-weight: 700;">⚙️ Settings</h3>
+                <div style="background: var(--bg-chat); padding: 14px; border-radius: 12px; border: 1px solid var(--border-color);">
+                    <p style="font-size: 13.5px;"><b>Core:</b> Nyluvo Intelligence v20.1</p>
+                    <p style="font-size: 13.5px; margin-top: 6px; color: #10b981;"><b>Status:</b> Fully Operational</p>
+                </div>
+                <button class="primary-btn" style="background: transparent; border: 1px solid var(--border-color); color: var(--text-main); box-shadow: none;" onclick="document.getElementById('settingsModal').style.display='none'">Close</button>
+            </div>
+        </div>
+
+        <div class="sidebar" id="appSidebar">
+            <div class="brand">
+                <span>⚡ Nyluvo X AI</span>
+                <button onclick="toggleSidebar()" class="menu-toggle-btn" style="font-size: 14px;">✕</button>
+            </div>
+            <button class="new-chat-btn" onclick="createNewChat()"><span>New chat</span> <span>＋</span></button>
+            
+            <div class="mode-selector">
+                <div class="mode-label">Model Mode</div>
+                <select id="aiMode" class="mode-select">
+                    <option value="general">✨ General Assistant</option>
+                    <option value="student">🎓 Student Expert</option>
+                    <option value="developer">💻 System Architect</option>
+                    <option value="hacker">🛡️ Security Engineer</option>
+                </select>
+            </div>
+
+            <div class="chat-history" id="chatHistoryList">
+                <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); padding: 4px 6px; font-weight: 700;">Recent</div>
+            </div>
+
+            <div class="sidebar-footer">
+                <button class="footer-btn" onclick="toggleTheme()">
+                    <span id="themeIcon">☀️</span> <span id="themeText">Light mode</span>
+                </button>
+                <button class="footer-btn" id="authNavBtn" onclick="openAuthModal('login')">👤 Account Login</button>
+                <button class="footer-btn" onclick="openSettings()">⚙️ Settings</button>
+            </div>
+        </div>
+
+        <div class="main-container">
+            <div class="chat-header">
+                <div class="header-left">
+                    <button class="menu-toggle-btn" onclick="toggleSidebar()">☰</button>
+                    <span id="currentChatTitle">New Workspace</span>
+                </div>
+                <span id="userLoggedInBadge" style="font-size: 12px; color: var(--text-muted);"></span>
+            </div>
+            
+            <div class="chat-messages" id="chatWindow">
+                <div class="message-wrapper ai">
+                    <div style="width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div>
+                    <div class="message-bubble">Hello! I am Nyluvo. How can I help you today?</div>
+                </div>
+            </div>
+
+            <div class="input-container">
+                <div class="input-box">
+                    <div id="previewContainer">
+                        <img id="previewImg" src="" alt="preview">
+                        <span id="fileNameDisplay" style="flex:1;"></span>
+                        <button onclick="removeImage()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:14px;">✕</button>
+                    </div>
+                    <div class="input-top">
+                        <textarea rows="1" placeholder="Message Nyluvo..." id="userInput"></textarea>
+                    </div>
+                    <div class="input-actions">
+                        <div class="tool-group">
+                            <label class="tool-btn" title="Upload Image">
+                                📎
+                                <input type="file" id="imageInput" accept="image/*" style="display:none;" onchange="handleImage(event)">
+                            </label>
+                            <button class="tool-btn" id="micBtn" title="Voice Input" onclick="toggleSpeechRecognition()">🎙️</button>
+                        </div>
+                        <button class="send-btn" onclick="sendMessage()">↑</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            let chats = JSON.parse(localStorage.getItem('chats')) || [{ id: Date.now(), title: 'New Workspace', messages: [] }];
+            let activeChatId = chats[0].id;
+            let currentImageBase64 = null;
+            let isSignUpMode = false;
+            let currentUser = localStorage.getItem('nyluvo_user') || null;
+
+            if(currentUser) {
+                document.getElementById('userLoggedInBadge').innerText = currentUser;
+                document.getElementById('authNavBtn').innerText = '🚪 Logout';
+            }
+
+            function toggleSidebar() {
+                const sidebar = document.getElementById('appSidebar');
+                const overlay = document.getElementById('sidebarOverlay');
+                sidebar.classList.toggle('open');
+                overlay.classList.toggle('active');
+            }
+
+            function openSettings() { document.getElementById('settingsModal').style.display = 'flex'; }
+
+            function openAuthModal(mode) {
+                if(currentUser) {
+                    localStorage.removeItem('nyluvo_user');
+                    currentUser = null;
+                    document.getElementById('userLoggedInBadge').innerText = '';
+                    document.getElementById('authNavBtn').innerText = '👤 Account Login';
+                    alert('Logged out successfully.');
+                    return;
+                }
+                isSignUpMode = (mode === 'signup');
+                updateAuthModalUI();
+                document.getElementById('authModal').style.display = 'flex';
+            }
+
+            function toggleAuthMode() {
+                isSignUpMode = !isSignUpMode;
+                updateAuthModalUI();
+            }
+
+            function updateAuthModalUI() {
+                document.getElementById('authTitle').innerText = isSignUpMode ? '📝 Create Account' : '🔐 Login to Nyluvo';
+                document.getElementById('authSubmitBtn').innerText = isSignUpMode ? 'Sign Up' : 'Login';
+                document.getElementById('authToggleText').innerText = isSignUpMode ? 'Already have an account? Login' : 'Create an account';
+                document.getElementById('authError').style.display = 'none';
+            }
+
+            async function handleAuthSubmit() {
+                const email = document.getElementById('authEmail').value.trim();
+                const password = document.getElementById('authPassword').value.trim();
+                const errBox = document.getElementById('authError');
+                if(!email || !password) { errBox.innerText = 'Please fill all fields'; errBox.style.display = 'block'; return; }
+
+                const endpoint = isSignUpMode ? '/auth/signup' : '/auth/login';
+                try {
+                    const res = await fetch(endpoint, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password })
+                    });
+                    const data = await res.json();
+                    if(res.ok) {
+                        if(isSignUpMode) {
+                            alert(data.message);
+                            toggleAuthMode();
+                        } else {
+                            currentUser = data.user;
+                            localStorage.setItem('nyluvo_user', currentUser);
+                            document.getElementById('userLoggedInBadge').innerText = currentUser;
+                            document.getElementById('authNavBtn').innerText = '🚪 Logout';
+                            document.getElementById('authModal').style.display = 'none';
+                            alert('Welcome back, ' + currentUser + '!');
                         }
-                    )
-                    if res.status_code == 200:
-                        ai_reply = res.json()["candidates"][0]["content"]["parts"][0]["text"]
-                        success = True
-                        break
-                except Exception:
-                    continue
+                    } else {
+                        errBox.innerText = data.error || 'Authentication failed';
+                        errBox.style.display = 'block';
+                    }
+                } catch(e) {
+                    errBox.innerText = 'Network error occurred';
+                    errBox.style.display = 'block';
+                }
+            }
 
-        # Standard Text Routing via Groq/Cerebras/Mistral/Cohere
-        if not success:
-            pools = [GROQ_KEYS, CEREBRAS_KEYS, COHERE_KEYS, MISTRAL_KEYS, GEMINI_KEYS]
-            valid_pools = [p for p in pools if p]
-            if valid_pools:
-                chosen_pool = random.choice(valid_pools)
-                key = random.choice(chosen_pool)
-                try:
-                    res = await client.post(
-                        "https://api.groq.com/openai/v1/chat/completions",
-                        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                        json={
-                            "model": "llama-3.3-70b-versatile",
-                            "messages": [
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": prompt if prompt else "Describe this image."}
-                            ],
-                            "temperature": 0.7
-                        }
-                    )
-                    if res.status_code == 200:
-                        ai_reply = res.json()["choices"][0]["message"]["content"]
-                        success = True
-                except Exception:
-                    pass
+            let recognition = null;
+            function toggleSpeechRecognition() {
+                const micBtn = document.getElementById('micBtn');
+                if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) { alert('Speech not supported.'); return; }
+                if (!recognition) {
+                    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+                    recognition = new SpeechRec();
+                    recognition.continuous = false;
+                    recognition.interimResults = false;
+                    recognition.lang = 'en-US';
+                    recognition.onstart = () => { micBtn.classList.add('listening'); };
+                    recognition.onresult = (event) => {
+                        const transcript = event.results[0][0].transcript;
+                        const textarea = document.getElementById('userInput');
+                        textarea.value += (textarea.value ? ' ' : '') + transcript;
+                        textarea.style.height = 'auto'; textarea.style.height = textarea.scrollHeight + 'px';
+                    };
+                    recognition.onerror = () => { micBtn.classList.remove('listening'); };
+                    recognition.onend = () => { micBtn.classList.remove('listening'); };
+                }
+                if (micBtn.classList.contains('listening')) recognition.stop();
+                else recognition.start();
+            }
 
-    if not success:
-        ai_reply = "Hello! Main **Nyluvo X AI** hoon. Filhal high traffic hone ki wajah se aapka message process nahi ho paya, kripya dobara try karein."
+            function saveChats() { localStorage.setItem('chats', JSON.stringify(chats)); renderHistory(); }
 
-    # Tavily Web Search integration
-    if use_web_search and TAVILY_KEYS:
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                search_res = await client.post(
-                    "https://api.tavily.com/search", 
-                    json={"api_key": random.choice(TAVILY_KEYS), "query": prompt, "max_results": 3}
-                )
-                if search_res.status_code == 200:
-                    sources = "\n".join([f"- [{item['title']}]({item['url']})" for item in search_res.json().get("results", [])])
-                    ai_reply += f"\n\n**🌐 Verified Sources:**\n{sources}"
-        except Exception:
-            pass
+            function renderHistory() {
+                const list = document.getElementById('chatHistoryList');
+                list.innerHTML = '<div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); padding: 4px 6px; font-weight: 700;">Recent</div>';
+                chats.forEach(chat => {
+                    list.innerHTML += `
+                        <div class="history-item" onclick="switchChat(${chat.id})">
+                            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 155px;">${chat.title}</span>
+                            <button class="delete-chat" onclick="event.stopPropagation(); deleteChat(${chat.id})">🗑️</button>
+                        </div>
+                    `;
+                });
+            }
 
-    return JSONResponse({"reply": ai_reply})
+            function createNewChat() {
+                const newChat = { id: Date.now(), title: 'New Workspace', messages: [] };
+                chats.unshift(newChat); activeChatId = newChat.id; saveChats(); loadActiveChat();
+                if(window.innerWidth <= 768) toggleSidebar();
+            }
+            function switchChat(id) { 
+                activeChatId = id; loadActiveChat(); 
+                if(window.innerWidth <= 768) toggleSidebar();
+            }
+            function deleteChat(id) {
+                chats = chats.filter(c => c.id !== id);
+                if (chats.length === 0) createNewChat();
+                else activeChatId = chats[0].id;
+                saveChats(); loadActiveChat();
+            }
+
+            function loadActiveChat() {
+                const chat = chats.find(c => c.id === activeChatId);
+                if (!chat) return;
+                document.getElementById('currentChatTitle').innerText = chat.title;
+                const window = document.getElementById('chatWindow');
+                window.innerHTML = '';
+                if(chat.messages.length === 0) {
+                    window.innerHTML = `<div class="message-wrapper ai"><div style="width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div><div class="message-bubble">Hello! I am Nyluvo. How can I help you today?</div></div>`;
+                } else {
+                    chat.messages.forEach((m, index) => {
+                        window.innerHTML += `<div class="message-wrapper ${m.role}">${m.role === 'ai' ? '<div style="width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div>' : ''}<div class="message-bubble">${m.content}</div><span class="msg-actions" onclick="deleteMessage(${index})">Delete</span></div>`;
+                    });
+                }
+                window.scrollTop = window.scrollHeight;
+            }
+
+            function deleteMessage(index) {
+                const chat = chats.find(c => c.id === activeChatId);
+                if(chat) { chat.messages.splice(index, 1); saveChats(); loadActiveChat(); }
+            }
+
+            function handleImage(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    currentImageBase64 = e.target.result;
+                    document.getElementById('previewImg').src = currentImageBase64;
+                    document.getElementById('fileNameDisplay').innerText = file.name;
+                    document.getElementById('previewContainer').style.display = 'flex';
+                };
+                reader.readAsDataURL(file);
+            }
+
+            function removeImage() {
+                currentImageBase64 = null;
+                document.getElementById('imageInput').value = '';
+                document.getElementById('previewContainer').style.display = 'none';
+            }
+
+            function toggleTheme() {
+                const html = document.documentElement;
+                const icon = document.getById('themeIcon');
+                const text = document.getElementById('themeText');
+                if (html.classList.contains('dark')) { html.classList.remove('dark'); icon.innerText = '🌙'; text.innerText = 'Dark mode'; }
+                else { html.classList.add('dark'); icon.innerText = '☀️'; text.innerText = 'Light mode'; }
+            }
+
+            const textarea = document.getElementById('userInput');
+            textarea.addEventListener('input', function() { this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px'; });
+            textarea.addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+
+            async function sendMessage() {
+                const text = textarea.value.trim();
+                const mode = document.getElementById('aiMode').value;
+                if (!text && !currentImageBase64) return;
+
+                let chat = chats.find(c => c.id === activeChatId);
+                if(chat.messages.length === 0) chat.title = text.length > 25 ? text.substring(0, 25) + '...' : 'New Chat';
+
+                let displayContent = text;
+                if(currentImageBase64) displayContent += `<br><img src="${currentImageBase64}" style="max-width:200px; border-radius:8px; margin-top:8px; border:1px solid var(--border-color);">`;
+
+                chat.messages.push({ role: 'user', content: displayContent });
+                saveChats(); loadActiveChat();
+
+                const imgPayload = currentImageBase64;
+                textarea.value = ''; textarea.style.height = 'auto'; removeImage();
+
+                const loadingId = 'loading-' + Date.now();
+                const chatWindow = document.getElementById('chatWindow');
+                chatWindow.innerHTML += `<div class="message-wrapper ai" id="${loadingId}"><div style="width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div><div class="message-bubble" style="display: flex; align-items: center; gap: 6px; color: var(--text-muted);"><span>Thinking</span><div class="typing-dots"><span></span><span></span><span></span></div></div></div>`;
+                chatWindow.scrollTop = chatWindow.scrollHeight;
+
+                try {
+                    const response = await fetch('/chat', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: text, mode: mode, image: imgPayload })
+                    });
+                    const data = await response.json();
+                    chat.messages.push({ role: 'ai', content: data.response });
+                    saveChats(); loadActiveChat();
+                } catch (err) {
+                    document.getElementById(loadingId).remove();
+                    chatWindow.innerHTML += `<div class="message-wrapper ai"><div style="width: 28px; height: 28px; background: #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">!</div><div class="message-bubble" style="color: #ef4444;">Connection error. Please try again.</div></div>`;
+                }
+            }
+
+            renderHistory(); loadActiveChat();
+        </script>
+    </body>
+    </html>
+    """
