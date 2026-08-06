@@ -304,6 +304,7 @@ async def home_workspace():
     <!DOCTYPE html>
     <html lang="en" class="dark">
     <head>
+    <meta name="google-site-verification" content="5tx4Pm_mR9DkosQcl7jqjOJEJ5N_FmJMtHMFyczUVkE" />
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Nyluvo X AI - NXT GEN AI 🚀</title>
