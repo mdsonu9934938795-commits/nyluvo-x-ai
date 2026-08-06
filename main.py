@@ -5,10 +5,11 @@ import httpx
 from dotenv import load_dotenv
 from supabase import create_client, Client
 import time
+from datetime import datetime
 
 load_dotenv()
 
-app = FastAPI(title="Nyluvo X AI", version="20.1")
+app = FastAPI(title="Nyluvo X AI - Ultimate Private Engine", version="22.0")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
@@ -21,11 +22,51 @@ if SUPABASE_URL and SUPABASE_KEY:
         pass
 
 MODE_PROMPTS = {
-    "general": "You are Nyluvo, a helpful, brilliant, and friendly AI assistant. Always acknowledge the user warmly and personally.You are founder by Mr. Sonu and nyluvo x ai pvt ltd. dont introduce or say hello there again and again, focus mainly on giving answers. Don't always answer from web.",
-    "student": "You are Nyluvo, an expert academic tutor. Explain concepts simply with clear definitions and step-by-step examples. You are founder by Mr. Sonu and nyluvo x ai pvt ltd. dont introduce or say hello there again and again, focus mainly on giving answers.Don't always answer from web.",
-    "developer": "You are Nyluvo, a senior software architect. Provide production-ready, highly optimized code and explain technical details cleanly.You are founder by Mr. Sonu and nyluvo x ai pvt ltd. dont introduce or say hello there again and again, focus mainly on giving answers.Don't always answer from web.",
-    "hacker": "You are Nyluvo, a cybersecurity expert and ethical penetration tester. Focus on low-level system engineering, security, and protocols.You are founder by Mr. Sonu and nyluvo x ai pvt ltd. dont introduce or say hello there again and again, focus mainly on giving answers.Don't always answer from web."
+    "general": "You are Nyluvo, an ultra-intelligent, friendly, and natural human-like AI assistant. Speak directly, warmly, and conversationally like a real human friend or expert colleague. Never keep repeating greetings, self-introductions, or boring template phrases. Get straight to the point while maintaining high warmth and intelligence. You are founded by Mr. Sonu and Nyluvo X AI Pvt Ltd.",
+    "student": "You are Nyluvo, an expert academic tutor and mentor. Explain things like an inspiring human teacher using crystal-clear analogies and step-by-step guidance. Avoid robotic intros or repeating greetings. Keep explanations engaging and precise. You are founded by Mr. Sonu and Nyluvo X AI Pvt Ltd.",
+    "developer": "You are Nyluvo, a senior software architect and tech mentor. Provide clean, production-ready code with sharp, pragmatic, and human-like technical reasoning. Skip fluff or repetitive greetings. You are founded by Mr. Sonu and Nyluvo X AI Pvt Ltd.",
+    "hacker": "You are Nyluvo, an elite cybersecurity expert and ethical penetration tester. Discuss system architectures, protocols, and security practices with deep technical precision and a sharp, direct tone. You are founded by Mr. Sonu and Nyluvo X AI Pvt Ltd."
 }
+
+async def check_and_update_message_limit(user_email: str) -> dict:
+    """
+    Background silent tracking:
+    - Free user: 35 messages/day
+    - Pro user: 200 messages/day
+    No public counter is shown to the user on UI.
+    """
+    if not supabase or not user_email:
+        return {"allowed": True, "msg": ""}
+    
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    try:
+        res = supabase.table("profiles").select("is_pro, message_count, last_reset_date").eq("email", user_email).execute()
+        
+        if not res.data:
+            supabase.table("profiles").insert({"email": user_email, "is_pro": False, "message_count": 1, "last_reset_date": today_str}).execute()
+            return {"allowed": True, "msg": ""}
+            
+        profile = res.data[0]
+        is_pro = profile.get("is_pro", False)
+        last_date = profile.get("last_reset_date")
+        count = profile.get("message_count", 0)
+        
+        daily_limit = 200 if is_pro else 35
+        
+        if last_date != today_str:
+            supabase.table("profiles").update({"message_count": 1, "last_reset_date": today_str}).eq("email", user_email).execute()
+            return {"allowed": True, "msg": ""}
+            
+        if count >= daily_limit:
+            if is_pro:
+                return {"allowed": False, "msg": "Aapne aaj ke aapke 200 Pro messages ki limit poori kar li hai. Kal quota automatically reset ho jayega."}
+            else:
+                return {"allowed": False, "msg": "Aapne aaj ke free messages ki limit cross kar li hai. Unlimited aur high-speed access ke liye **Nyluvo Pro sirf ₹99 mein upgrade karein (200 messages/day)**!"}
+            
+        supabase.table("profiles").update({"message_count": count + 1}).eq("email", user_email).execute()
+        return {"allowed": True, "msg": ""}
+    except Exception:
+        return {"allowed": True, "msg": ""}
 
 async def get_cached_search(query: str) -> str:
     if not supabase:
@@ -83,19 +124,6 @@ async def tavily_web_search(query: str) -> str:
                         return final_text
             except Exception:
                 continue
-                
-    try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            res = await client.get(f"https://api.duckduckgo.com/?q={query}&format=json")
-            if res.status_code == 200:
-                data = res.json()
-                text = data.get("AbstractText", "")
-                if text:
-                    final_text = f"[Web Context]: {text}"
-                    await save_cached_search(query, final_text)
-                    return final_text
-    except Exception:
-        pass
     return ""
 
 async def call_ai_with_failover(prompt: str, mode: str, image_data: str = None) -> str:
@@ -103,7 +131,7 @@ async def call_ai_with_failover(prompt: str, mode: str, image_data: str = None) 
     
     web_context = await tavily_web_search(prompt)
     if web_context:
-        system_prompt += f"\n\nReal-time reference data: {web_context}"
+        system_prompt += f"\n\nReal-time reference info: {web_context}"
 
     providers = [
         ("Groq-1", "https://api.groq.com/openai/v1/chat/completions", os.getenv("GROQ_API_KEY_1"), "llama-3.3-70b-versatile", "bearer"),
@@ -143,7 +171,7 @@ async def call_ai_with_failover(prompt: str, mode: str, image_data: str = None) 
             except Exception:
                 continue
 
-    return "All cluster nodes are busy or unconfigured. Please check your system configuration."
+    return "Abhi servers thode busy hain. Kripya apna sawal dobara bhejiye."
 
 @app.post("/chat")
 async def chat_endpoint(request: Request):
@@ -152,116 +180,56 @@ async def chat_endpoint(request: Request):
         user_message = data.get("message", "")
         mode = data.get("mode", "general")
         image_data = data.get("image", None)
+        user_email = data.get("email", None)
         
         if not user_message and not image_data:
             raise HTTPException(status_code=400, detail="Content required")
             
+        # Silent background limit check (No UI clutter)
+        limit_check = await check_and_update_message_limit(user_email)
+        if not limit_check["allowed"]:
+            return {"response": limit_check["msg"]}
+            
         ai_reply = await call_ai_with_failover(user_message, mode, image_data)
         return {"response": ai_reply}
     except Exception as e:
-        return {"response": f"Error: {str(e)}"}
+        return {"response": f"Kuch technical dikkat aayi hai: {str(e)}"}
 
 @app.post("/auth/signup")
 async def signup(request: Request):
     if not supabase:
-        return JSONResponse(status_code=400, content={"error": "Database not configured"})
+        return JSONResponse(status_code=400, content={"error": "Database configured nahi hai"})
     data = await request.json()
     try:
         res = supabase.auth.sign_up({"email": data.get("email"), "password": data.get("password")})
-        return {"message": "Account created successfully! Please log in."}
+        return {"message": "Account successfully ban gaya hai! Ab login karein."}
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
 
 @app.post("/auth/login")
 async def login(request: Request):
     if not supabase:
-        return JSONResponse(status_code=400, content={"error": "Database not configured"})
+        return JSONResponse(status_code=400, content={"error": "Database configured nahi hai"})
     data = await request.json()
     try:
         res = supabase.auth.sign_in_with_password({"email": data.get("email"), "password": data.get("password")})
         return {"session": res.session.access_token, "user": res.user.email}
     except Exception as e:
-        return JSONResponse(status_code=400, content={"error": "Invalid email or password"})
+        return JSONResponse(status_code=400, content={"error": "Galat email ya password hai"})
 
-@app.get("/admin", response_class=HTMLResponse)
-async def admin_dashboard():
-    return """
-    <!DOCTYPE html>
-    <html lang="en" class="dark">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Nyluvo Admin Dashboard</title>
-        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-        <style>
-            :root {
-                --bg-main: #0d1117; --bg-card: #161b22; --border-color: rgba(255, 255, 255, 0.1);
-                --text-main: #f0f6fc; --text-muted: #8b949e; --accent: #3b82f6; --accent-hover: #60a5fa;
-            }
-            * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
-            body { background: var(--bg-main); color: var(--text-main); padding: 30px; display: flex; justify-content: center; }
-            .admin-container { width: 100%; max-width: 900px; display: flex; flex-direction: column; gap: 24px; }
-            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px; }
-            .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
-            .card { background: var(--bg-card); border: 1px solid var(--border-color); padding: 20px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
-            .card h4 { color: var(--text-muted); font-size: 13px; text-transform: uppercase; margin-bottom: 8px; }
-            .card .value { font-size: 26px; font-weight: 700; color: var(--accent); }
-            .btn { background: var(--accent); color: #fff; padding: 10px 16px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; }
-            .btn:hover { background: var(--accent-hover); }
-            .login-box { background: var(--bg-card); border: 1px solid var(--border-color); padding: 30px; border-radius: 16px; width: 360px; margin: 100px auto; display: flex; flex-direction: column; gap: 14px; }
-            .login-box input { padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-main); color: var(--text-main); outline: none; }
-        </style>
-    </head>
-    <body>
-        <div id="loginScreen" class="login-box">
-            <h3>🔒 Admin Verification</h3>
-            <p style="font-size: 13px; color: var(--text-muted);">Enter admin master password to continue.</p>
-            <input type="password" id="adminPass" placeholder="Master Password">
-            <button class="btn" onclick="verifyAdmin()">Access Dashboard</button>
-        </div>
-
-        <div id="dashboardContent" class="admin-container" style="display:none;">
-            <div class="header">
-                <h2>⚡ Nyluvo Admin Control Panel</h2>
-                <button class="btn" style="background:#ef4444;" onclick="location.reload()">Logout</button>
-            </div>
-            <div class="stats-grid">
-                <div class="card">
-                    <h4>System Status</h4>
-                    <div class="value" style="color: #10b981;">ONLINE</div>
-                </div>
-                <div class="card">
-                    <h4>AI Engine</h4>
-                    <div class="value" style="font-size: 20px;">Multi-Cluster Active</div>
-                </div>
-                <div class="card">
-                    <h4>Database Link</h4>
-                    <div class="value" style="font-size: 20px; color: #3b82f6;">Supabase Connected</div>
-                </div>
-            </div>
-            <div class="card">
-                <h4 style="margin-bottom: 14px;">Quick Actions</h4>
-                <div style="display: flex; gap: 10px;">
-                    <button class="btn" onclick="alert('System cache cleared successfully!')">Clear Search Cache</button>
-                    <button class="btn" onclick="alert('All services operating normally.')">Run Diagnostics</button>
-                </div>
-            </div>
-        </div>
-
-        <script>
-            function verifyAdmin() {
-                const pass = document.getElementById('adminPass').value;
-                if(pass === 'nyluvo_admin_123') {
-                    document.getElementById('loginScreen').style.display = 'none';
-                    document.getElementById('dashboardContent').style.display = 'flex';
-                } else {
-                    alert('Incorrect Admin Password!');
-                }
-            }
-        </script>
-    </body>
-    </html>
-    """
+@app.post("/payment/upgrade-success")
+async def upgrade_success(request: Request):
+    if not supabase:
+        return JSONResponse(status_code=400, content={"error": "Database configured nahi hai"})
+    data = await request.json()
+    email = data.get("email")
+    if not email:
+        return JSONResponse(status_code=400, content={"error": "Email zaroori hai"})
+    try:
+        supabase.table("profiles").update({"is_pro": True}).eq("email", email).execute()
+        return {"success": True, "message": "Badhai ho! Aapka account Pro mein upgrade ho gaya hai."}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
 @app.get("/", response_class=HTMLResponse)
 async def home_workspace():
@@ -271,7 +239,7 @@ async def home_workspace():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Nyluvo X AI - Master Workspace</title>
+        <title>Nyluvo X AI - Professional Assistant</title>
         <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
         <style>
             :root {
@@ -287,44 +255,19 @@ async def home_workspace():
                 --shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
             }
             * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease; }
-            body { 
-                background: var(--bg-main); 
-                color: var(--text-main); 
-                display: flex; 
-                height: 100vh; 
-                height: 100dvh; 
-                overflow: hidden; 
-                position: relative;
-            }
+            body { background: var(--bg-main); color: var(--text-main); display: flex; height: 100vh; height: 100dvh; overflow: hidden; position: relative; }
             
-            @keyframes fadeIn {
-                from { opacity: 0; transform: translateY(6px); }
-                to { opacity: 1; transform: translateY(0); }
-            }
-            @keyframes pulseGlow {
-                0% { opacity: 0.3; transform: scale(0.98); }
-                50% { opacity: 1; transform: scale(1.02); }
-                100% { opacity: 0.3; transform: scale(0.98); }
-            }
-
-            .sidebar { 
-                width: 260px; 
-                background: var(--bg-sidebar); 
-                border-right: 1px solid var(--border-color); 
-                display: flex; 
-                flex-direction: column; 
-                padding: 12px; 
-                height: 100%;
-                z-index: 100;
-                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            }
-
+            .sidebar { width: 260px; background: var(--bg-sidebar); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 12px; height: 100%; z-index: 100; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
             .brand { font-size: 16px; font-weight: 700; color: var(--text-main); margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; }
             .brand span { display: flex; align-items: center; gap: 8px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
             
             .new-chat-btn { background: var(--accent); color: #ffffff; border: none; padding: 10px 14px; border-radius: 10px; font-weight: 600; font-size: 13.5px; cursor: pointer; text-align: left; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; width: 100%; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.3); }
             .new-chat-btn:hover { background: var(--accent-hover); }
             
+            .pro-banner { background: linear-gradient(135deg, #7c3aed, #4f46e5); color: #fff; padding: 12px; border-radius: 12px; margin-bottom: 16px; cursor: pointer; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.4); }
+            .pro-banner h4 { font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+            .pro-banner p { font-size: 11px; opacity: 0.9; margin-top: 2px; }
+
             .mode-selector { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; padding: 0 4px; }
             .mode-label { font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px; }
             .mode-select { background: var(--bg-chat); border: 1px solid var(--border-color); color: var(--text-main); padding: 10px 12px; border-radius: 8px; font-size: 13.5px; outline: none; cursor: pointer; font-weight: 500; }
@@ -348,17 +291,13 @@ async def home_workspace():
             .menu-toggle-btn:hover { background: var(--hover-bg); }
 
             .chat-messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 24px; align-items: center; scroll-behavior: smooth; }
-            .message-wrapper { width: 100%; max-width: 768px; display: flex; gap: 16px; font-size: 15px; line-height: 1.6; position: relative; animation: fadeIn 0.3s ease; }
+            .message-wrapper { width: 100%; max-width: 768px; display: flex; gap: 16px; font-size: 15px; line-height: 1.6; position: relative; }
             .message-wrapper.user { justify-content: flex-end; }
             .message-bubble { padding: 12px 16px; border-radius: 16px; max-width: 85%; word-break: break-word; box-shadow: var(--shadow); }
             .message-wrapper.user .message-bubble { background: var(--accent); color: #ffffff; border-top-right-radius: 4px; }
             .message-wrapper.ai .message-bubble { background: var(--bg-chat); border: 1px solid var(--border-color); color: var(--text-main); border-top-left-radius: 4px; }
             .msg-actions { position: absolute; right: 0; bottom: -16px; font-size: 11px; color: var(--text-muted); cursor: pointer; display: none; }
             .message-wrapper:hover .msg-actions { display: block; }
-
-            .typing-dots span { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); margin: 0 2px; animation: pulseGlow 1.2s infinite ease-in-out both; }
-            .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-            .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
 
             .input-container { padding: 16px 20px 24px 20px; background: var(--bg-main); display: flex; justify-content: center; }
             .input-box { width: 100%; max-width: 768px; background: var(--bg-chat); border: 1px solid var(--border-color); border-radius: 20px; display: flex; flex-direction: column; padding: 10px 14px; box-shadow: var(--shadow); }
@@ -370,7 +309,6 @@ async def home_workspace():
             .tool-group { display: flex; gap: 6px; align-items: center; }
             .tool-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; display: flex; align-items: center; padding: 6px; border-radius: 6px; }
             .tool-btn:hover { background: var(--hover-bg); color: var(--text-main); }
-            .tool-btn.listening { color: #ef4444; animation: pulseGlow 1s infinite; }
             
             .send-btn { background: var(--accent); color: #ffffff; border: none; width: 34px; height: 34px; border-radius: 50%; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; box-shadow: 0 2px 10px rgba(59, 130, 246, 0.3); }
             .send-btn:hover { background: var(--accent-hover); }
@@ -385,7 +323,7 @@ async def home_workspace():
             .primary-btn:hover { background: var(--accent-hover); }
 
             @media (max-width: 768px) {
-                .sidebar { position: absolute; left: 0; top: 0; bottom: 0; transform: translateX(-100%); box-shadow: 10px 0 30px rgba(0,0,0,0.5); }
+                .sidebar { position: absolute; left: 0; top: 0; bottom: 0; transform: translateX(-100%); }
                 .sidebar.open { transform: translateX(0); }
                 .sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 90; display: none; }
                 .sidebar-overlay.active { display: block; }
@@ -403,20 +341,19 @@ async def home_workspace():
                 <input type="password" id="authPassword" placeholder="Password">
                 <button class="primary-btn" id="authSubmitBtn" onclick="handleAuthSubmit()">Login</button>
                 <div style="display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted); margin-top: 4px;">
-                    <span id="authToggleText" style="cursor: pointer; color: var(--accent);" onclick="toggleAuthMode()">Create an account</span>
+                    <span id="authToggleText" style="cursor: pointer; color: var(--accent);" onclick="toggleAuthMode()">Create account</span>
                     <span style="cursor: pointer;" onclick="document.getElementById('authModal').style.display='none'">Cancel</span>
                 </div>
             </div>
         </div>
 
-        <div id="settingsModal" class="modal-overlay" style="display:none;">
-            <div class="modal-card">
-                <h3 style="font-size: 18px; font-weight: 700;">⚙️ Settings</h3>
-                <div style="background: var(--bg-chat); padding: 14px; border-radius: 12px; border: 1px solid var(--border-color);">
-                    <p style="font-size: 13.5px;"><b>Core:</b> Nyluvo Intelligence v20.1</p>
-                    <p style="font-size: 13.5px; margin-top: 6px; color: #10b981;"><b>Status:</b> Fully Operational</p>
-                </div>
-                <button class="primary-btn" style="background: transparent; border: 1px solid var(--border-color); color: var(--text-main); box-shadow: none;" onclick="document.getElementById('settingsModal').style.display='none'">Close</button>
+        <div id="proModal" class="modal-overlay" style="display:none;">
+            <div class="modal-card" style="text-align: center;">
+                <div style="font-size: 32px;">👑</div>
+                <h3 style="font-size: 20px; font-weight: 700;">Nyluvo Pro Upgrade</h3>
+                <p style="font-size: 13px; color: var(--text-muted);">Get 200 daily messages, high-speed priority cluster, and professional modes for just <b style="color:var(--text-main);">₹99/month</b>.</p>
+                <button class="primary-btn" onclick="simulatePayment()" style="background: linear-gradient(135deg, #7c3aed, #4f46e5); margin-top: 10px;">Pay ₹99 Now (Instant Unlock)</button>
+                <button class="primary-btn" style="background: transparent; border: 1px solid var(--border-color); color: var(--text-main); box-shadow: none;" onclick="document.getElementById('proModal').style.display='none'">Maybe Later</button>
             </div>
         </div>
 
@@ -427,8 +364,13 @@ async def home_workspace():
             </div>
             <button class="new-chat-btn" onclick="createNewChat()"><span>New chat</span> <span>＋</span></button>
             
+            <div class="pro-banner" onclick="openProModal()">
+                <h4>👑 Nyluvo Pro</h4>
+                <p>Unlock 200 msgs/day • ₹99 Only</p>
+            </div>
+
             <div class="mode-selector">
-                <div class="mode-label">Model Mode</div>
+                <div class="mode-label">Intelligence Mode</div>
                 <select id="aiMode" class="mode-select">
                     <option value="general">✨ General Assistant</option>
                     <option value="student">🎓 Student Expert</option>
@@ -446,7 +388,6 @@ async def home_workspace():
                     <span id="themeIcon">☀️</span> <span id="themeText">Light mode</span>
                 </button>
                 <button class="footer-btn" id="authNavBtn" onclick="openAuthModal('login')">👤 Account Login</button>
-                <button class="footer-btn" onclick="openSettings()">⚙️ Settings</button>
             </div>
         </div>
 
@@ -462,7 +403,7 @@ async def home_workspace():
             <div class="chat-messages" id="chatWindow">
                 <div class="message-wrapper ai">
                     <div style="width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div>
-                    <div class="message-bubble">Hello! I am Nyluvo. How can I help you today?</div>
+                    <div class="message-bubble">Hello! Main Nyluvo hoon. Bataiye aaj main aapki kya madad kar sakta hoon?</div>
                 </div>
             </div>
 
@@ -474,7 +415,7 @@ async def home_workspace():
                         <button onclick="removeImage()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:14px;">✕</button>
                     </div>
                     <div class="input-top">
-                        <textarea rows="1" placeholder="Message Nyluvo..." id="userInput"></textarea>
+                        <textarea rows="1" placeholder="Type your message here..." id="userInput"></textarea>
                     </div>
                     <div class="input-actions">
                         <div class="tool-group">
@@ -482,7 +423,6 @@ async def home_workspace():
                                 📎
                                 <input type="file" id="imageInput" accept="image/*" style="display:none;" onchange="handleImage(event)">
                             </label>
-                            <button class="tool-btn" id="micBtn" title="Voice Input" onclick="toggleSpeechRecognition()">🎙️</button>
                         </div>
                         <button class="send-btn" onclick="sendMessage()">↑</button>
                     </div>
@@ -509,7 +449,33 @@ async def home_workspace():
                 overlay.classList.toggle('active');
             }
 
-            function openSettings() { document.getElementById('settingsModal').style.display = 'flex'; }
+            function openProModal() {
+                if(!currentUser) {
+                    alert('Pro upgrade karne ke liye pehle login karein!');
+                    openAuthModal('login');
+                    return;
+                }
+                document.getElementById('proModal').style.display = 'flex';
+            }
+
+            async function simulatePayment() {
+                if(!currentUser) return;
+                try {
+                    const res = await fetch('/payment/upgrade-success', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email: currentUser })
+                    });
+                    const data = await res.json();
+                    if(res.ok) {
+                        alert('🎉 Payment successful! Aapka account ab Pro ban chuka hai.');
+                        document.getElementById('proModal').style.display = 'none';
+                    } else {
+                        alert('Upgrade error: ' + data.error);
+                    }
+                } catch(e) {
+                    alert('Network error during payment.');
+                }
+            }
 
             function openAuthModal(mode) {
                 if(currentUser) {
@@ -517,7 +483,7 @@ async def home_workspace():
                     currentUser = null;
                     document.getElementById('userLoggedInBadge').innerText = '';
                     document.getElementById('authNavBtn').innerText = '👤 Account Login';
-                    alert('Logged out successfully.');
+                    alert('Successfully logout ho gaye hain.');
                     return;
                 }
                 isSignUpMode = (mode === 'signup');
@@ -533,7 +499,7 @@ async def home_workspace():
             function updateAuthModalUI() {
                 document.getElementById('authTitle').innerText = isSignUpMode ? '📝 Create Account' : '🔐 Login to Nyluvo';
                 document.getElementById('authSubmitBtn').innerText = isSignUpMode ? 'Sign Up' : 'Login';
-                document.getElementById('authToggleText').innerText = isSignUpMode ? 'Already have an account? Login' : 'Create an account';
+                document.getElementById('authToggleText').innerText = isSignUpMode ? 'Pehle se account hai? Login' : 'Account banayein';
                 document.getElementById('authError').style.display = 'none';
             }
 
@@ -541,7 +507,7 @@ async def home_workspace():
                 const email = document.getElementById('authEmail').value.trim();
                 const password = document.getElementById('authPassword').value.trim();
                 const errBox = document.getElementById('authError');
-                if(!email || !password) { errBox.innerText = 'Please fill all fields'; errBox.style.display = 'block'; return; }
+                if(!email || !password) { errBox.innerText = 'Sabhi fields bharein'; errBox.style.display = 'block'; return; }
 
                 const endpoint = isSignUpMode ? '/auth/signup' : '/auth/login';
                 try {
@@ -563,37 +529,13 @@ async def home_workspace():
                             alert('Welcome back, ' + currentUser + '!');
                         }
                     } else {
-                        errBox.innerText = data.error || 'Authentication failed';
+                        errBox.innerText = data.error || 'Authentication fail ho gayi';
                         errBox.style.display = 'block';
                     }
                 } catch(e) {
-                    errBox.innerText = 'Network error occurred';
+                    errBox.innerText = 'Network error aaya hai';
                     errBox.style.display = 'block';
                 }
-            }
-
-            let recognition = null;
-            function toggleSpeechRecognition() {
-                const micBtn = document.getElementById('micBtn');
-                if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) { alert('Speech not supported.'); return; }
-                if (!recognition) {
-                    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-                    recognition = new SpeechRec();
-                    recognition.continuous = false;
-                    recognition.interimResults = false;
-                    recognition.lang = 'en-US';
-                    recognition.onstart = () => { micBtn.classList.add('listening'); };
-                    recognition.onresult = (event) => {
-                        const transcript = event.results[0][0].transcript;
-                        const textarea = document.getElementById('userInput');
-                        textarea.value += (textarea.value ? ' ' : '') + transcript;
-                        textarea.style.height = 'auto'; textarea.style.height = textarea.scrollHeight + 'px';
-                    };
-                    recognition.onerror = () => { micBtn.classList.remove('listening'); };
-                    recognition.onend = () => { micBtn.classList.remove('listening'); };
-                }
-                if (micBtn.classList.contains('listening')) recognition.stop();
-                else recognition.start();
             }
 
             function saveChats() { localStorage.setItem('chats', JSON.stringify(chats)); renderHistory(); }
@@ -634,7 +576,7 @@ async def home_workspace():
                 const window = document.getElementById('chatWindow');
                 window.innerHTML = '';
                 if(chat.messages.length === 0) {
-                    window.innerHTML = `<div class="message-wrapper ai"><div style="width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div><div class="message-bubble">Hello! I am Nyluvo. How can I help you today?</div></div>`;
+                    window.innerHTML = `<div class="message-wrapper ai"><div style="width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div><div class="message-bubble">Hello! Main Nyluvo hoon. Bataiye aaj main aapki kya madad kar sakta hoon?</div></div>`;
                 } else {
                     chat.messages.forEach((m, index) => {
                         window.innerHTML += `<div class="message-wrapper ${m.role}">${m.role === 'ai' ? '<div style="width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div>' : ''}<div class="message-bubble">${m.content}</div><span class="msg-actions" onclick="deleteMessage(${index})">Delete</span></div>`;
@@ -669,10 +611,8 @@ async def home_workspace():
 
             function toggleTheme() {
                 const html = document.documentElement;
-                const icon = document.getById('themeIcon');
-                const text = document.getElementById('themeText');
-                if (html.classList.contains('dark')) { html.classList.remove('dark'); icon.innerText = '🌙'; text.innerText = 'Dark mode'; }
-                else { html.classList.add('dark'); icon.innerText = '☀️'; text.innerText = 'Light mode'; }
+                if (html.classList.contains('dark')) { html.classList.remove('dark'); }
+                else { html.classList.add('dark'); }
             }
 
             const textarea = document.getElementById('userInput');
@@ -698,20 +638,20 @@ async def home_workspace():
 
                 const loadingId = 'loading-' + Date.now();
                 const chatWindow = document.getElementById('chatWindow');
-                chatWindow.innerHTML += `<div class="message-wrapper ai" id="${loadingId}"><div style="width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div><div class="message-bubble" style="display: flex; align-items: center; gap: 6px; color: var(--text-muted);"><span>Thinking</span><div class="typing-dots"><span></span><span></span><span></span></div></div></div>`;
+                chatWindow.innerHTML += `<div class="message-wrapper ai" id="${loadingId}"><div style="width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">AI</div><div class="message-bubble" style="display: flex; align-items: center; gap: 6px; color: var(--text-muted);"><span>Soch raha hoon...</span></div></div>`;
                 chatWindow.scrollTop = chatWindow.scrollHeight;
 
                 try {
                     const response = await fetch('/chat', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message: text, mode: mode, image: imgPayload })
+                        body: JSON.stringify({ message: text, mode: mode, image: imgPayload, email: currentUser })
                     });
                     const data = await response.json();
                     chat.messages.push({ role: 'ai', content: data.response });
                     saveChats(); loadActiveChat();
                 } catch (err) {
                     document.getElementById(loadingId).remove();
-                    chatWindow.innerHTML += `<div class="message-wrapper ai"><div style="width: 28px; height: 28px; background: #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">!</div><div class="message-bubble" style="color: #ef4444;">Connection error. Please try again.</div></div>`;
+                    chatWindow.innerHTML += `<div class="message-wrapper ai"><div style="width: 28px; height: 28px; background: #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px; flex-shrink: 0;">!</div><div class="message-bubble" style="color: #ef4444;">Connection error aagaya hai. Dobara try karein.</div></div>`;
                 }
             }
 
